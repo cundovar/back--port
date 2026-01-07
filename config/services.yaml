@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+# See also https://symfony.com/doc/current/service_container/import.html
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
+parameters:
+    openai.api_key: '%env(OPENAI_API_KEY)%'
+    openai.model: '%env(OPENAI_MODEL)%'
+    openai.summary_max_words: '%env(int:OPENAI_SUMMARY_MAX_WORDS)%'
+    openai.bulletin_max_words: '%env(int:OPENAI_BULLETIN_MAX_WORDS)%'
+    openai.bulletin_style: '%env(OPENAI_BULLETIN_STYLE)%'
+    github.username: '%env(GITHUB_USERNAME)%'
+    github.token: '%env(GITHUB_TOKEN)%'
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    App\:
+        resource: '../src/'
+
+    App\Service\GitHubStatsService:
+        arguments:
+            $githubUsername: '%github.username%'
+            $githubToken: '%github.token%'
+
+    App\Service\GitHubRepoActivityService:
+        arguments:
+            $githubToken: '%github.token%'
+
+    App\Service\OpenAiSummaryService:
+        arguments:
+            $openAiApiKey: '%openai.api_key%'
+            $openAiModel: '%openai.model%'
+            $defaultMaxWords: '%openai.summary_max_words%'
+
+    App\Service\OpenAiBulletinService:
+        arguments:
+            $openAiApiKey: '%openai.api_key%'
+            $openAiModel: '%openai.model%'
+            $defaultMaxWords: '%openai.bulletin_max_words%'
+            $style: '%openai.bulletin_style%'
+
+    App\Command\GenerateSkillsSnapshotCommand:
+        arguments:
+            $summaryMaxWords: '%openai.summary_max_words%'
+
+    # add more service definitions when explicit configuration is needed
+    # please note that last definitions always *replace* previous ones
