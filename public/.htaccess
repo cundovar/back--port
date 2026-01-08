@@ -1,17 +1,16 @@
 # CORS Headers
 <IfModule mod_headers.c>
-    SetEnvIf Origin "^https://varascundo\.com$" CORS_ORIGIN=$0
-    Header set Access-Control-Allow-Origin %{CORS_ORIGIN}e env=CORS_ORIGIN
-    Header set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    Header set Access-Control-Allow-Headers "Content-Type, Authorization"
-    Header set Access-Control-Allow-Credentials "true"
+    Header always set Access-Control-Allow-Origin "https://varascundo.com"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+    Header always set Access-Control-Allow-Credentials "true"
+    Header always set Access-Control-Max-Age "3600"
 </IfModule>
 
-# Handle preflight OPTIONS requests
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Preflight OPTIONS
+    # Handle preflight OPTIONS - return 200 immediately
     RewriteCond %{REQUEST_METHOD} OPTIONS
     RewriteRule ^(.*)$ $1 [R=200,L]
 
