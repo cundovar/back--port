@@ -1,0 +1,8 @@
+# Symfony .htaccess for Apache
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Redirect to front controller
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
