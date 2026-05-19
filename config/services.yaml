@@ -48,7 +48,7 @@ services:
             $defaultMaxWords: '%openai.bulletin_max_words%'
             $style: '%openai.bulletin_style%'
 
-    App\Command\GenerateSkillsSnapshotCommand:
+    App\Service\SkillsSnapshotService:
         arguments:
             $summaryMaxWords: '%openai.summary_max_words%'
 
