@@ -6,190 +6,141 @@ namespace App\Service;
 
 use App\Exception\QuoteEstimateValidationException;
 
-final class QuoteEstimateCalculator
+class QuoteEstimateCalculator
 {
-    // à ajuster : bases par service (euros, placeholders réalistes)
-    private const SERVICE_CATALOG = [
-        'automation' => ['label' => 'Automatisation', 'baseMin' => 800, 'baseMax' => 2500],
-        'ai-assistant' => ['label' => 'Assistant IA', 'baseMin' => 1200, 'baseMax' => 4000],
-        'refonte' => ['label' => 'Refonte', 'baseMin' => 1500, 'baseMax' => 6000],
-        'custom-tool' => ['label' => 'Outil sur mesure', 'baseMin' => 2000, 'baseMax' => 8000],
-        'wordpress' => ['label' => 'WordPress', 'baseMin' => 600, 'baseMax' => 2000],
-    ];
+    private const ROUNDING_STEP = 50;
 
-    // à ajuster : multiplicateur de complexité (appliqué à baseMin ET baseMax)
-    private const COMPLEXITY_MULTIPLIERS = [
-        'simple' => 1.0,
-        'standard' => 1.15,
-        'complexe' => 1.4,
-    ];
+    public const DEADLINE_FLEXIBLE = 'flexible';
+    public const DEADLINE_NORMAL = 'normal';
+    public const DEADLINE_PRIORITAIRE = 'prioritaire';
 
-    // à ajuster : supplément forfaitaire par intégration, plafonné
-    private const INTEGRATION_UNIT_SURCHARGE = 150;   // €/intégration
-    private const INTEGRATION_MAX_COUNTED = 5;        // au-delà, plafond
+    public const CONTENT_READY = 'pret';
+    public const CONTENT_TO_WRITE = 'a-rediger';
+    public const CONTENT_UNKNOWN = 'je-ne-sais-pas';
 
-    // à ajuster : reprise d'un existant (dette technique à absorber)
-    private const LEGACY_TAKEOVER_SURCHARGE = 500;    // €
+    public const STAGE_NEW = 'nouveau';
+    public const STAGE_EXISTING = 'existant';
 
-    // à ajuster : urgence (délai compressé)
-    private const URGENCY_MULTIPLIER = 1.2;
+    private const DEADLINES = [self::DEADLINE_FLEXIBLE, self::DEADLINE_NORMAL, self::DEADLINE_PRIORITAIRE];
+    private const CONTENT_STATES = [self::CONTENT_READY, self::CONTENT_TO_WRITE, self::CONTENT_UNKNOWN];
+    private const STAGES = [self::STAGE_NEW, self::STAGE_EXISTING];
 
-    // à ajuster : accompagnement / formation
-    private const TRAINING_SURCHARGES = [
-        'none' => 0,
-        'light' => 300,
-        'full' => 700,
-    ];
-
-    private const ROUNDING_STEP = 50;   // arrondi final au multiple de 50€
+    public function __construct(private readonly QuotePricingCatalog $catalogService)
+    {
+    }
 
     /**
-     * Calculate a quote estimate range and detail breakdown.
-     *
-     * @param string $serviceKey One of SERVICE_CATALOG keys
-     * @param string $complexity One of COMPLEXITY_MULTIPLIERS keys
-     * @param int $integrationsCount Number of integrations (0+)
-     * @param bool $legacyTakeover Whether legacy system needs remediation
-     * @param bool $urgency Whether expedited (higher multiplier)
-     * @param string $trainingNeed One of TRAINING_SURCHARGES keys
+     * @param array{offerKey:string,variantKey:string,optionKeys:string[],projectStage:string,contentReadiness:string,deadline:string} $answers
      *
      * @return array{
-     *     'minimumAmount': int,
-     *     'maximumAmount': int,
-     *     'calculationDetail': array[]
+     *     offerKey:string, offerLabel:string, contentQuestion:bool, variantKey:string, variantLabel:string,
+     *     minimumAmount:int, maximumAmount:int,
+     *     includes:string[], selectedOptions:array<int, array{key:string,label:string}>,
+     *     calculationDetail:array<int, array{label:string,impactMin:int,impactMax:int}>
      * }
      *
-     * @throws QuoteEstimateValidationException if serviceKey, complexity, or trainingNeed not in catalog
+     * @throws QuoteEstimateValidationException when a choice is absent from the active catalog
      */
-    public function calculate(
-        string $serviceKey,
-        string $complexity,
-        int $integrationsCount,
-        bool $legacyTakeover,
-        bool $urgency,
-        string $trainingNeed,
-    ): array {
-        // Validate service key
-        if (!isset(self::SERVICE_CATALOG[$serviceKey])) {
-            throw new QuoteEstimateValidationException(
-                sprintf("Service key '%s' not in catalog.", $serviceKey)
-            );
+    public function calculate(array $catalog, array $answers): array
+    {
+        $offer = $this->catalogService->findOffer($catalog, $answers['offerKey']);
+        if ($offer === null) {
+            throw new QuoteEstimateValidationException(sprintf("Offre inconnue: '%s'.", $answers['offerKey']));
         }
 
-        // Validate complexity
-        if (!isset(self::COMPLEXITY_MULTIPLIERS[$complexity])) {
-            throw new QuoteEstimateValidationException(
-                sprintf("Complexity '%s' not in catalog.", $complexity)
-            );
+        $variant = $this->catalogService->findVariant($offer, $answers['variantKey']);
+        if ($variant === null) {
+            throw new QuoteEstimateValidationException(sprintf("Formule inconnue: '%s'.", $answers['variantKey']));
         }
 
-        // Validate training need
-        if (!isset(self::TRAINING_SURCHARGES[$trainingNeed])) {
-            throw new QuoteEstimateValidationException(
-                sprintf("Training need '%s' not in catalog.", $trainingNeed)
-            );
+        foreach (['projectStage' => self::STAGES, 'contentReadiness' => self::CONTENT_STATES, 'deadline' => self::DEADLINES] as $field => $allowed) {
+            if (!in_array($answers[$field], $allowed, true)) {
+                throw new QuoteEstimateValidationException(sprintf("Valeur inconnue pour %s: '%s'.", $field, $answers[$field]));
+            }
         }
 
-        $service = self::SERVICE_CATALOG[$serviceKey];
-        $min = (float) $service['baseMin'];
-        $max = (float) $service['baseMax'];
+        $min = (int) $variant['minimumAmount'];
+        $max = (int) $variant['maximumAmount'];
 
-        $detail = [];
+        $detail = [[
+            'label' => $variant['label'],
+            'impactMin' => $min,
+            'impactMax' => $max,
+        ]];
 
-        // Add base service to detail
-        $detail[] = [
-            'label' => sprintf('Base %s', $service['label']),
-            'impactMin' => (int) $min,
-            'impactMax' => (int) $max,
-        ];
+        $selectedOptions = [];
+        foreach ($answers['optionKeys'] as $optionKey) {
+            $option = $this->catalogService->findOption($offer, $optionKey);
+            if ($option === null) {
+                throw new QuoteEstimateValidationException(sprintf("Option inconnue: '%s'.", $optionKey));
+            }
 
-        // Apply complexity multiplier
-        $complexityMult = self::COMPLEXITY_MULTIPLIERS[$complexity];
-        if ($complexityMult !== 1.0) {
-            $complexityImpactMin = $min * ($complexityMult - 1.0);
-            $complexityImpactMax = $max * ($complexityMult - 1.0);
-            $min *= $complexityMult;
-            $max *= $complexityMult;
-
+            $min += (int) $option['minimumAmount'];
+            $max += (int) $option['maximumAmount'];
+            $selectedOptions[] = ['key' => $option['key'], 'label' => $option['label']];
             $detail[] = [
-                'label' => sprintf('Complexité %s (+%.0f%%)', $complexity, ($complexityMult - 1.0) * 100),
-                'impactMin' => (int) round($complexityImpactMin),
-                'impactMax' => (int) round($complexityImpactMax),
+                'label' => $option['label'],
+                'impactMin' => (int) $option['minimumAmount'],
+                'impactMax' => (int) $option['maximumAmount'],
             ];
         }
 
-        // Apply urgency multiplier
-        if ($urgency) {
-            $urgencyImpactMin = $min * (self::URGENCY_MULTIPLIER - 1.0);
-            $urgencyImpactMax = $max * (self::URGENCY_MULTIPLIER - 1.0);
-            $min *= self::URGENCY_MULTIPLIER;
-            $max *= self::URGENCY_MULTIPLIER;
+        $adjustments = $catalog['adjustments'] ?? [];
 
+        // The question only makes sense for offers that ship editorial content:
+        // an automation or an assistant is never charged for copywriting.
+        $contentQuestionApplies = ($offer['contentQuestion'] ?? true) === true;
+
+        // "Je ne sais pas" never adds a supplement: only an explicit "à rédiger" does.
+        if ($contentQuestionApplies && $answers['contentReadiness'] === self::CONTENT_TO_WRITE && isset($adjustments['contentWriting'])) {
+            $contentWriting = $adjustments['contentWriting'];
+            $min += (int) $contentWriting['minimumAmount'];
+            $max += (int) $contentWriting['maximumAmount'];
             $detail[] = [
-                'label' => 'Urgence (+20%)',
-                'impactMin' => (int) round($urgencyImpactMin),
-                'impactMax' => (int) round($urgencyImpactMax),
+                'label' => $contentWriting['label'],
+                'impactMin' => (int) $contentWriting['minimumAmount'],
+                'impactMax' => (int) $contentWriting['maximumAmount'],
             ];
         }
 
-        // Add integration surcharges
-        $countedIntegrations = min($integrationsCount, self::INTEGRATION_MAX_COUNTED);
-        if ($countedIntegrations > 0) {
-            $integrationTotal = $countedIntegrations * self::INTEGRATION_UNIT_SURCHARGE;
-            $min += $integrationTotal;
-            $max += $integrationTotal;
-
+        if ($answers['deadline'] === self::DEADLINE_PRIORITAIRE && isset($adjustments['priorityDelay'])) {
+            $multiplier = (float) $adjustments['priorityDelay']['multiplier'];
+            $impactMin = (int) round($min * ($multiplier - 1.0));
+            $impactMax = (int) round($max * ($multiplier - 1.0));
+            $min += $impactMin;
+            $max += $impactMax;
             $detail[] = [
-                'label' => sprintf('%d intégration%s', $countedIntegrations, $countedIntegrations > 1 ? 's' : ''),
-                'impactMin' => $integrationTotal,
-                'impactMax' => $integrationTotal,
+                'label' => $adjustments['priorityDelay']['label'],
+                'impactMin' => $impactMin,
+                'impactMax' => $impactMax,
             ];
         }
 
-        // Add legacy takeover surcharge
-        if ($legacyTakeover) {
-            $min += self::LEGACY_TAKEOVER_SURCHARGE;
-            $max += self::LEGACY_TAKEOVER_SURCHARGE;
-
-            $detail[] = [
-                'label' => 'Reprise d\'existant',
-                'impactMin' => self::LEGACY_TAKEOVER_SURCHARGE,
-                'impactMax' => self::LEGACY_TAKEOVER_SURCHARGE,
-            ];
-        }
-
-        // Add training surcharge
-        $trainingSurcharge = self::TRAINING_SURCHARGES[$trainingNeed];
-        if ($trainingSurcharge > 0) {
-            $min += $trainingSurcharge;
-            $max += $trainingSurcharge;
-
-            $trainingLabel = match ($trainingNeed) {
-                'light' => 'Accompagnement léger',
-                'full' => 'Accompagnement complet',
-                default => 'Accompagnement',
-            };
-
-            $detail[] = [
-                'label' => $trainingLabel,
-                'impactMin' => $trainingSurcharge,
-                'impactMax' => $trainingSurcharge,
-            ];
-        }
-
-        // Round to nearest ROUNDING_STEP
-        $min = (int) round($min / self::ROUNDING_STEP) * self::ROUNDING_STEP;
-        $max = (int) round($max / self::ROUNDING_STEP) * self::ROUNDING_STEP;
-
-        // Ensure max >= min (edge case when rounding collapses range)
+        $min = $this->round($min);
+        $max = $this->round($max);
         if ($max < $min) {
             $max = $min + self::ROUNDING_STEP;
         }
 
         return [
+            'offerKey' => $offer['key'],
+            'offerLabel' => $offer['label'],
+            'contentQuestion' => $contentQuestionApplies,
+            'variantKey' => $variant['key'],
+            'variantLabel' => $variant['label'],
             'minimumAmount' => $min,
             'maximumAmount' => $max,
+            'includes' => array_values(array_filter(
+                $variant['includes'] ?? [],
+                static fn ($item): bool => is_string($item) && trim($item) !== '',
+            )),
+            'selectedOptions' => $selectedOptions,
             'calculationDetail' => $detail,
         ];
+    }
+
+    private function round(int $amount): int
+    {
+        return (int) round($amount / self::ROUNDING_STEP) * self::ROUNDING_STEP;
     }
 }

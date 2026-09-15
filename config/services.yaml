@@ -80,6 +80,7 @@ services:
     App\Controller\QuoteEstimateController:
         arguments:
             $quoteEstimatePublicLimiter: '@limiter.quote_estimate_public'
+            $quoteEstimatePreviewLimiter: '@limiter.quote_estimate_preview'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

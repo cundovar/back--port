@@ -34,7 +34,7 @@ class DeepSeekQuoteAnalysisService
      * Never throws: any failure falls back to a deterministic summary so the
      * caller can always return a usable estimate.
      *
-     * @param array{serviceLabel:string,complexityLabel:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingLabel:string,projectDescription:string} $projectContext
+     * @param array{offerLabel:string,variantLabel:string,optionLabels:string[],projectStage:string,contentReadiness:string,deadline:string,projectDescription:string} $projectContext
      * @param array<int, array{label:string,impactMin:int,impactMax:int}> $calculationDetail
      *
      * @return array{summary:string,recommendedScope:string[],missingQuestions:string[],riskFlags:string[],source:string}
@@ -133,7 +133,7 @@ class DeepSeekQuoteAnalysisService
     }
 
     /**
-     * @param array{serviceLabel:string,complexityLabel:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingLabel:string,projectDescription:string} $projectContext
+     * @param array{offerLabel:string,variantLabel:string,optionLabels:string[],projectStage:string,contentReadiness:string,deadline:string,projectDescription:string} $projectContext
      * @param array<int, array{label:string,impactMin:int,impactMax:int}> $calculationDetail
      */
     private function buildPrompt(array $projectContext, array $calculationDetail): string
@@ -143,15 +143,18 @@ class DeepSeekQuoteAnalysisService
             $factorLines[] = '- ' . $factor['label'];
         }
 
+        $optionLabels = $projectContext['optionLabels'];
+
         return implode("\n", [
-            'Type de prestation : ' . $projectContext['serviceLabel'],
-            'Complexite : ' . $projectContext['complexityLabel'],
-            'Nombre d integrations : ' . $projectContext['integrationsCount'],
-            'Reprise d un existant : ' . ($projectContext['legacyTakeover'] ? 'oui' : 'non'),
-            'Urgence : ' . ($projectContext['urgency'] ? 'oui' : 'non'),
-            'Accompagnement : ' . $projectContext['trainingLabel'],
-            'Facteurs retenus dans le calcul :',
-            $factorLines !== [] ? implode("\n", $factorLines) : '- aucun facteur supplementaire',
+            'Resultat recherche : ' . $projectContext['offerLabel'],
+            'Formule choisie : ' . $projectContext['variantLabel'],
+            'Fonctionnalites demandees :',
+            $optionLabels !== [] ? '- ' . implode("\n- ", $optionLabels) : '- aucune fonctionnalite supplementaire',
+            'Projet neuf ou existant : ' . $projectContext['projectStage'],
+            'Contenus (textes, images) : ' . $projectContext['contentReadiness'],
+            'Delai souhaite : ' . $projectContext['deadline'],
+            'Elements retenus dans le calcul :',
+            $factorLines !== [] ? implode("\n", $factorLines) : '- aucun element supplementaire',
             '',
             'Description du besoin :',
             $projectContext['projectDescription'] !== '' ? $projectContext['projectDescription'] : 'Non precisee.',
@@ -162,7 +165,7 @@ class DeepSeekQuoteAnalysisService
     }
 
     /**
-     * @param array{serviceLabel:string,complexityLabel:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingLabel:string,projectDescription:string} $projectContext
+     * @param array{offerLabel:string,variantLabel:string,optionLabels:string[],projectStage:string,contentReadiness:string,deadline:string,projectDescription:string} $projectContext
      *
      * @return array{summary:string,recommendedScope:string[],missingQuestions:string[],riskFlags:string[],source:string}
      */
@@ -170,10 +173,10 @@ class DeepSeekQuoteAnalysisService
     {
         return [
             'summary' => sprintf(
-                'Estimation basee sur un projet de type %s (complexite %s). La fourchette est calculee automatiquement'
-                    . ' a partir de vos reponses ; un echange permettra d affiner le perimetre exact.',
-                $projectContext['serviceLabel'],
-                $projectContext['complexityLabel'],
+                'Estimation basee sur : %s, formule %s. La fourchette est calculee automatiquement a partir'
+                    . ' de vos reponses ; un echange permettra d affiner le perimetre exact.',
+                $projectContext['offerLabel'],
+                $projectContext['variantLabel'],
             ),
             'recommendedScope' => ['Un premier echange pour preciser le perimetre exact.'],
             'missingQuestions' => [],

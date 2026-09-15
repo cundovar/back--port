@@ -6,9 +6,12 @@ namespace App\Tests\Controller;
 
 use App\Controller\QuoteEstimateController;
 use App\Entity\QuoteEstimate;
+use App\Entity\QuotePricingConfiguration;
+use App\Repository\QuotePricingConfigurationRepository;
 use App\Service\DeepSeekQuoteAnalysisService;
 use App\Service\QuoteEstimateCalculator;
 use App\Service\QuoteEstimateNotificationService;
+use App\Service\QuotePricingCatalog;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\Request;
@@ -20,160 +23,159 @@ use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
 final class QuoteEstimateControllerTest extends TestCase
 {
-    private const VALID_PAYLOAD = [
-        'serviceKey' => 'automation',
-        'complexity' => 'standard',
-        'integrationsCount' => 2,
-        'legacyTakeover' => false,
-        'urgency' => false,
-        'trainingNeed' => 'light',
-        'projectDescription' => 'Automatiser la relance client.',
-        'fullName' => 'Jane Doe',
-        'email' => 'jane@example.com',
-        'consentAccepted' => true,
+    private const PROJECT_ANSWERS = [
+        'offerKey' => 'site-vitrine',
+        'variantKey' => 'wordpress-vitrine',
+        'optionKeys' => ['prise-rdv'],
+        'projectStage' => 'nouveau',
+        'contentReadiness' => 'pret',
+        'deadline' => 'normal',
+        'projectDescription' => 'Un site pour mon cabinet.',
     ];
 
-    public function testValidSubmissionPersistsAndReturnsEstimate(): void
+    private const CONTACT = [
+        'fullName' => 'Claire Martin',
+        'email' => 'claire@example.com',
+        'consent' => true,
+    ];
+
+    public function testPreviewReturnsPriceWithoutContactPersistenceOrAi(): void
     {
-        $analysis = $this->analysisServiceReturning([
-            'summary' => 'Synthèse IA.',
-            'recommendedScope' => ['Cadrer les intégrations'],
-            'missingQuestions' => ['Quel volume ?'],
-            'riskFlags' => [],
-            'source' => 'deepseek',
-        ]);
+        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
+        $analysis->expects(self::never())->method('analyze');
+
+        $notification = $this->createMock(QuoteEstimateNotificationService::class);
+        $notification->expects(self::never())->method('notify');
+
+        $response = $this->controller($analysis, $notification)->preview($this->jsonRequest(self::PROJECT_ANSWERS));
+
+        self::assertSame(200, $response->getStatusCode());
+        $body = json_decode((string) $response->getContent(), true);
+
+        // 600-1100 + 150-350
+        self::assertSame(750, $body['minimumAmount']);
+        self::assertSame(1450, $body['maximumAmount']);
+        self::assertNotEmpty($body['includes']);
+        self::assertSame(['Prise de rendez-vous en ligne'], array_column($body['selectedOptions'], 'label'));
+        self::assertSame(7, $body['pricingVersion']);
+        self::assertArrayNotHasKey('id', $body);
+    }
+
+    public function testPreviewRejectsAnUnknownVariantWith422(): void
+    {
+        $payload = self::PROJECT_ANSWERS;
+        $payload['variantKey'] = 'inexistant';
+
+        $response = $this->controller()->preview($this->jsonRequest($payload));
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('invalid_catalog_value', json_decode((string) $response->getContent(), true)['error']);
+    }
+
+    public function testPreviewRejectsMissingAnswerWith400(): void
+    {
+        $payload = self::PROJECT_ANSWERS;
+        unset($payload['deadline']);
+
+        $this->expectException(BadRequestHttpException::class);
+        $this->controller()->preview($this->jsonRequest($payload));
+    }
+
+    public function testFinalSubmissionRecalculatesAndIgnoresClientAmounts(): void
+    {
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['minimumAmount'] = 9;
+        $payload['maximumAmount'] = 9;
 
         $persisted = null;
         $em = $this->createMock(EntityManagerInterface::class);
-        $em->expects(self::once())
-            ->method('persist')
-            ->willReturnCallback(static function (QuoteEstimate $estimate) use (&$persisted): void {
+        $em->expects(self::once())->method('persist')->willReturnCallback(
+            static function (QuoteEstimate $estimate) use (&$persisted): void {
                 $persisted = $estimate;
-            });
+            },
+        );
         $em->expects(self::once())->method('flush');
 
-        $notification = $this->createMock(QuoteEstimateNotificationService::class);
-        $notification->expects(self::once())->method('notify')->willReturn(true);
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $notification,
-            $this->limiterFactory(true),
-        );
-
-        $response = $controller->create($this->jsonRequest(self::VALID_PAYLOAD), $em);
+        $response = $this->controller()->create($this->jsonRequest($payload), $em);
 
         self::assertSame(201, $response->getStatusCode());
-
         $body = json_decode((string) $response->getContent(), true);
-        self::assertSame('automation', $body['serviceKey']);
-        self::assertSame('Synthèse IA.', $body['summary']);
-        self::assertSame('deepseek', $body['aiSource']);
-        self::assertNotEmpty($body['calculationDetail']);
-        self::assertLessThanOrEqual($body['maximumAmount'], $body['minimumAmount']);
-        self::assertSame('Estimation indicative, non contractuelle.', $body['disclaimer']);
 
+        self::assertSame(750, $body['minimumAmount']);
+        self::assertSame(1450, $body['maximumAmount']);
         self::assertInstanceOf(QuoteEstimate::class, $persisted);
-        self::assertSame('Jane Doe', $persisted->getFullName());
-        self::assertSame('light', $persisted->getAnswers()['trainingNeed']);
+        self::assertSame(750, $persisted->getMinimumAmount());
+        self::assertSame(7, $persisted->getPricingVersion());
+        self::assertSame('site-vitrine', $persisted->getOfferKey());
+        self::assertSame('wordpress-vitrine', $persisted->getVariantKey());
     }
 
-    public function testMissingRequiredFieldIsRejectedBeforeAnyWork(): void
+    public function testFinalSubmissionRequiresConsent(): void
     {
-        $payload = self::VALID_PAYLOAD;
-        unset($payload['fullName']);
-
-        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::never())->method('analyze');
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['consent'] = false;
 
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
-        $em->expects(self::never())->method('flush');
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
-        );
 
         $this->expectException(BadRequestHttpException::class);
-        $controller->create($this->jsonRequest($payload), $em);
+        $this->controller()->create($this->jsonRequest($payload), $em);
     }
 
-    public function testOutOfCatalogServiceKeyReturns422(): void
+    public function testOversizedCompanyOrPhoneIsRefusedBeforeReachingTheDatabase(): void
     {
-        $payload = self::VALID_PAYLOAD;
-        $payload['serviceKey'] = 'nope';
+        foreach (['company' => 121, 'phone' => 41] as $field => $length) {
+            $payload = self::PROJECT_ANSWERS + self::CONTACT;
+            $payload[$field] = str_repeat('a', $length);
 
-        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::never())->method('analyze');
+            $em = $this->createMock(EntityManagerInterface::class);
+            $em->expects(self::never())->method('persist');
+
+            try {
+                $this->controller()->create($this->jsonRequest($payload), $em);
+                self::fail(sprintf('A too long %s should be refused.', $field));
+            } catch (BadRequestHttpException) {
+                self::assertTrue(true);
+            }
+        }
+    }
+
+    public function testCompanySentWithTheWrongTypeIsRefused(): void
+    {
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['company'] = ['unexpected'];
 
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
-        );
-
-        $response = $controller->create($this->jsonRequest($payload), $em);
-
-        self::assertSame(422, $response->getStatusCode());
-        $body = json_decode((string) $response->getContent(), true);
-        self::assertSame('invalid_catalog_value', $body['error']);
-    }
-
-    public function testOversizedOptionalContactFieldIsRejectedBeforeAiCall(): void
-    {
-        $payload = self::VALID_PAYLOAD;
-        $payload['company'] = str_repeat('x', 121);
-
-        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::never())->method('analyze');
-
-        $em = $this->createMock(EntityManagerInterface::class);
-        $em->expects(self::never())->method('persist');
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
-        );
 
         $this->expectException(BadRequestHttpException::class);
-        $controller->create($this->jsonRequest($payload), $em);
+        $this->controller()->create($this->jsonRequest($payload), $em);
     }
 
-    public function testMissingConsentIsRejectedBeforeAiCall(): void
+    public function testCompanyAndPhoneAtTheMaximumLengthAreAccepted(): void
     {
-        $payload = self::VALID_PAYLOAD;
-        unset($payload['consentAccepted']);
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['company'] = str_repeat('a', 120);
+        $payload['phone'] = str_repeat('1', 40);
 
-        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::never())->method('analyze');
-
+        $persisted = null;
         $em = $this->createMock(EntityManagerInterface::class);
-        $em->expects(self::never())->method('persist');
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
+        $em->expects(self::once())->method('persist')->willReturnCallback(
+            static function (QuoteEstimate $estimate) use (&$persisted): void {
+                $persisted = $estimate;
+            },
         );
+        $em->expects(self::once())->method('flush');
 
-        $this->expectException(BadRequestHttpException::class);
-        $controller->create($this->jsonRequest($payload), $em);
+        $this->controller()->create($this->jsonRequest($payload), $em);
+
+        self::assertSame(120, mb_strlen((string) $persisted->getCompany()));
+        self::assertSame(40, mb_strlen((string) $persisted->getPhone()));
     }
 
-    public function testHoneypotIsSilentlyDiscarded(): void
+    public function testHoneypotIsDiscardedBeforeAnyWork(): void
     {
-        $payload = self::VALID_PAYLOAD;
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
         $payload['honeypot'] = 'bot';
 
         $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
@@ -182,50 +184,27 @@ final class QuoteEstimateControllerTest extends TestCase
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
 
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
-        );
-
-        $response = $controller->create($this->jsonRequest($payload), $em);
+        $response = $this->controller($analysis)->create($this->jsonRequest($payload), $em);
 
         self::assertSame(202, $response->getStatusCode());
-        self::assertSame(['ok' => true], json_decode((string) $response->getContent(), true));
     }
 
-    public function testAiFallbackStillReturnsUsableEstimate(): void
+    public function testAiFailureStillReturnsAndStoresThePrice(): void
     {
-        $analysis = $this->analysisServiceReturning([
-            'summary' => 'Synthèse de secours.',
-            'recommendedScope' => [],
-            'missingQuestions' => [],
-            'riskFlags' => [],
-            'source' => 'fallback',
-        ]);
+        $analysis = $this->analysisReturning('fallback');
 
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::once())->method('persist');
-        $em->expects(self::once())->method('flush');
 
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
-        );
+        $response = $this->controller($analysis)->create($this->jsonRequest(self::PROJECT_ANSWERS + self::CONTACT), $em);
 
-        $response = $controller->create($this->jsonRequest(self::VALID_PAYLOAD), $em);
-
-        self::assertSame(201, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
+        self::assertSame(201, $response->getStatusCode());
         self::assertSame('fallback', $body['aiSource']);
-        self::assertSame('Synthèse de secours.', $body['summary']);
-        self::assertGreaterThan(0, $body['minimumAmount']);
+        self::assertSame(750, $body['minimumAmount']);
     }
 
-    public function testRateLimitedRequestReturns429WithoutAiCall(): void
+    public function testRateLimitedSubmissionSkipsAiAndPersistence(): void
     {
         $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
         $analysis->expects(self::never())->method('analyze');
@@ -233,57 +212,77 @@ final class QuoteEstimateControllerTest extends TestCase
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
 
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(false),
-        );
+        $controller = $this->controller($analysis, null, false);
 
         $this->expectException(TooManyRequestsHttpException::class);
-        $controller->create($this->jsonRequest(self::VALID_PAYLOAD), $em);
+        $controller->create($this->jsonRequest(self::PROJECT_ANSWERS + self::CONTACT), $em);
     }
 
-    public function testPersonalDataNeverReachesTheAnalysisService(): void
+    public function testContactDetailsNeverReachTheModel(): void
     {
-        $payload = self::VALID_PAYLOAD;
-        $payload['company'] = 'ACME';
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['company'] = 'Cabinet Martin';
         $payload['phone'] = '0600000000';
 
-        $capturedContext = null;
+        $captured = null;
         $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::once())
-            ->method('analyze')
-            ->willReturnCallback(static function (array $context, array $detail) use (&$capturedContext): array {
-                $capturedContext = $context;
+        $analysis->expects(self::once())->method('analyze')->willReturnCallback(
+            static function (array $context) use (&$captured): array {
+                $captured = $context;
 
-                return [
-                    'summary' => 'ok',
-                    'recommendedScope' => [],
-                    'missingQuestions' => [],
-                    'riskFlags' => [],
-                    'source' => 'deepseek',
-                ];
-            });
-
-        $em = $this->createStub(EntityManagerInterface::class);
-
-        $controller = new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
-            $analysis,
-            $this->createStub(QuoteEstimateNotificationService::class),
-            $this->limiterFactory(true),
+                return ['summary' => 'ok', 'recommendedScope' => [], 'missingQuestions' => [], 'riskFlags' => [], 'source' => 'deepseek'];
+            },
         );
 
-        $controller->create($this->jsonRequest($payload), $em);
+        $this->controller($analysis)->create($this->jsonRequest($payload), $this->createStub(EntityManagerInterface::class));
 
-        self::assertIsArray($capturedContext);
-        $flattened = strtolower(json_encode($capturedContext, JSON_THROW_ON_ERROR));
-        foreach (['jane doe', 'jane@example.com', 'acme', '0600000000'] as $personalValue) {
-            self::assertStringNotContainsString($personalValue, $flattened);
+        $flattened = strtolower(json_encode($captured, JSON_THROW_ON_ERROR));
+        foreach (['claire', 'example.com', 'cabinet martin', '0600000000'] as $personal) {
+            self::assertStringNotContainsString($personal, $flattened);
         }
-        self::assertArrayNotHasKey('fullName', $capturedContext);
-        self::assertArrayNotHasKey('email', $capturedContext);
+    }
+
+    private function controller(
+        ?DeepSeekQuoteAnalysisService $analysis = null,
+        ?QuoteEstimateNotificationService $notification = null,
+        bool $limitAccepted = true,
+    ): QuoteEstimateController {
+        return new QuoteEstimateController(
+            new QuoteEstimateCalculator(new QuotePricingCatalog()),
+            $analysis ?? $this->analysisReturning('deepseek'),
+            $notification ?? $this->createStub(QuoteEstimateNotificationService::class),
+            $this->pricingRepository(),
+            $this->limiterFactory($limitAccepted),
+            $this->limiterFactory($limitAccepted),
+        );
+    }
+
+    private function pricingRepository(): QuotePricingConfigurationRepository
+    {
+        $configuration = new QuotePricingConfiguration();
+        $configuration->setCatalog(QuotePricingCatalog::defaultCatalog());
+        for ($i = 1; $i < 7; ++$i) {
+            $configuration->bumpVersion();
+        }
+
+        $repository = $this->createStub(QuotePricingConfigurationRepository::class);
+        $repository->method('getActive')->willReturn($configuration);
+
+        return $repository;
+    }
+
+    private function analysisReturning(string $source): DeepSeekQuoteAnalysisService
+    {
+        $analysis = $this->createStub(DeepSeekQuoteAnalysisService::class);
+        $analysis->method('analyze')->willReturn([
+            'summary' => 'Synthèse.',
+            'recommendedScope' => [],
+            'missingQuestions' => [],
+            'riskFlags' => [],
+            'source' => $source,
+        ]);
+
+        return $analysis;
     }
 
     private function jsonRequest(array $payload): Request
@@ -297,14 +296,6 @@ final class QuoteEstimateControllerTest extends TestCase
             ['REMOTE_ADDR' => '203.0.113.1'],
             json_encode($payload, JSON_THROW_ON_ERROR),
         );
-    }
-
-    private function analysisServiceReturning(array $result): DeepSeekQuoteAnalysisService
-    {
-        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
-        $analysis->expects(self::once())->method('analyze')->willReturn($result);
-
-        return $analysis;
     }
 
     private function limiterFactory(bool $accepted): RateLimiterFactoryInterface

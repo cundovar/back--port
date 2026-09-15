@@ -7,11 +7,14 @@ namespace App\Tests\Controller;
 use App\Controller\QuoteEstimateController;
 use App\Entity\QuoteEstimate;
 use App\Entity\AdminUser;
+use App\Entity\QuotePricingConfiguration;
 use App\Repository\QuoteEstimateRepository;
+use App\Repository\QuotePricingConfigurationRepository;
 use App\Security\AdminTokenGuard;
 use App\Service\DeepSeekQuoteAnalysisService;
 use App\Service\QuoteEstimateCalculator;
 use App\Service\QuoteEstimateNotificationService;
+use App\Service\QuotePricingCatalog;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
 use PHPUnit\Framework\TestCase;
@@ -94,9 +97,41 @@ final class QuoteEstimateAdminControllerTest extends TestCase
         $body = json_decode((string) $response->getContent(), true);
 
         self::assertSame('Synthèse', $body['summary']);
-        self::assertSame('standard', $body['answers']['complexity']);
+        self::assertSame('nouveau', $body['answers']['projectStage']);
+        self::assertSame(3, $body['pricingVersion']);
         self::assertSame('deepseek', $body['aiSource']);
         self::assertNotEmpty($body['calculationDetail']);
+    }
+
+    public function testListRowCarriesTheOfferAndPricingVersion(): void
+    {
+        $repository = $this->createStub(QuoteEstimateRepository::class);
+        $repository->method('findForAdminList')->willReturn([$this->estimate()]);
+        $repository->method('countAll')->willReturn(1);
+
+        $response = $this->controller()->listAdmin(new Request(), $repository, $this->allowingGuard());
+        $row = json_decode((string) $response->getContent(), true)['items'][0];
+
+        self::assertSame('site-vitrine', $row['offerKey']);
+        self::assertSame('wordpress-vitrine', $row['variantKey']);
+        self::assertSame(3, $row['pricingVersion']);
+    }
+
+    public function testHistoricalAmountsSurviveACatalogChange(): void
+    {
+        $raisedCatalog = QuotePricingCatalog::defaultCatalog();
+        $raisedCatalog['offers'][0]['variants'][1]['minimumAmount'] = 9000;
+        $raisedCatalog['offers'][0]['variants'][1]['maximumAmount'] = 12000;
+
+        $em = $this->entityManagerReturning($this->estimate());
+
+        $response = $this->controller($raisedCatalog)->getEstimate(1, new Request(), $em, $this->allowingGuard());
+        $body = json_decode((string) $response->getContent(), true);
+
+        // The stored result is read back as-is: an admin price edit never rewrites history.
+        self::assertSame(1500, $body['minimumAmount']);
+        self::assertSame(3500, $body['maximumAmount']);
+        self::assertSame(3, $body['pricingVersion']);
     }
 
     public function testDetailReturns404WhenMissing(): void
@@ -150,12 +185,20 @@ final class QuoteEstimateAdminControllerTest extends TestCase
         $this->controller()->updateEstimate(1, $request, $em, $this->allowingGuard());
     }
 
-    private function controller(): QuoteEstimateController
+    private function controller(?array $catalog = null): QuoteEstimateController
     {
+        $configuration = new QuotePricingConfiguration();
+        $configuration->setCatalog($catalog ?? QuotePricingCatalog::defaultCatalog());
+
+        $pricingRepository = $this->createStub(QuotePricingConfigurationRepository::class);
+        $pricingRepository->method('getActive')->willReturn($configuration);
+
         return new QuoteEstimateController(
-            new QuoteEstimateCalculator(),
+            new QuoteEstimateCalculator(new QuotePricingCatalog()),
             $this->createStub(DeepSeekQuoteAnalysisService::class),
             $this->createStub(QuoteEstimateNotificationService::class),
+            $pricingRepository,
+            $this->createStub(RateLimiterFactoryInterface::class),
             $this->createStub(RateLimiterFactoryInterface::class),
         );
     }
@@ -163,14 +206,18 @@ final class QuoteEstimateAdminControllerTest extends TestCase
     private function estimate(): QuoteEstimate
     {
         $estimate = new QuoteEstimate();
-        $estimate->setServiceKey('automation');
+        $estimate->setServiceKey('site-vitrine');
+        $estimate->setOfferKey('site-vitrine');
+        $estimate->setVariantKey('wordpress-vitrine');
+        $estimate->setPricingVersion(3);
         $estimate->setAnswers([
-            'complexity' => 'standard',
-            'integrationsCount' => 2,
-            'legacyTakeover' => false,
-            'urgency' => false,
-            'trainingNeed' => 'light',
-            'projectDescription' => 'Relances clients',
+            'offerLabel' => 'Présenter mon activité en ligne',
+            'variantLabel' => 'Un site de plusieurs pages que vous pouvez modifier',
+            'selectedOptions' => [['key' => 'prise-rdv', 'label' => 'Prise de rendez-vous en ligne']],
+            'projectStage' => 'nouveau',
+            'contentReadiness' => 'pret',
+            'deadline' => 'normal',
+            'projectDescription' => 'Site pour mon cabinet',
         ]);
         $estimate->setFullName('Jane Doe');
         $estimate->setEmail('jane@example.com');

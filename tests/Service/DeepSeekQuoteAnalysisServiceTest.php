@@ -14,12 +14,12 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 final class DeepSeekQuoteAnalysisServiceTest extends TestCase
 {
     private const CONTEXT = [
-        'serviceLabel' => 'Automatisation',
-        'complexityLabel' => 'standard',
-        'integrationsCount' => 2,
-        'legacyTakeover' => false,
-        'urgency' => false,
-        'trainingLabel' => 'léger',
+        'offerLabel' => 'Arrêter de refaire la même tâche',
+        'variantLabel' => 'Une tâche précise à automatiser',
+        'optionLabels' => ['Relances automatiques par email'],
+        'projectStage' => 'nouveau',
+        'contentReadiness' => 'pret',
+        'deadline' => 'normal',
         'projectDescription' => 'Relancer les clients automatiquement.',
     ];
 
@@ -54,7 +54,7 @@ final class DeepSeekQuoteAnalysisServiceTest extends TestCase
         $result = $this->service($client)->analyze(self::CONTEXT, self::DETAIL);
 
         self::assertSame('fallback', $result['source']);
-        self::assertStringContainsString('Automatisation', $result['summary']);
+        self::assertStringContainsString('Arrêter de refaire', $result['summary']);
         self::assertNotSame('', $result['summary']);
     }
 
@@ -104,7 +104,7 @@ final class DeepSeekQuoteAnalysisServiceTest extends TestCase
 
         self::assertIsString($capturedBody);
         self::assertStringNotContainsString('@example.com', $capturedBody);
-        self::assertStringContainsString('Automatisation', $capturedBody);
+        self::assertStringContainsString('Relances automatiques', $capturedBody);
         self::assertSame('deepseek-chat', json_decode($capturedBody, true, flags: JSON_THROW_ON_ERROR)['model']);
     }
 

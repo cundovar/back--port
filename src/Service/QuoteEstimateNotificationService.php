@@ -39,7 +39,9 @@ class QuoteEstimateNotificationService
             'Entreprise : ' . ($estimate->getCompany() ?: 'Non précisée'),
             'Téléphone : ' . ($estimate->getPhone() ?: 'Non précisé'),
             '',
-            'Prestation : ' . $estimate->getServiceKey(),
+            'Prestation : ' . ($answers['offerLabel'] ?? $estimate->getServiceKey()),
+            'Formule : ' . ($answers['variantLabel'] ?? '—'),
+            'Grille tarifaire : version ' . $estimate->getPricingVersion(),
             sprintf('Fourchette : %d € – %d €', $estimate->getMinimumAmount(), $estimate->getMaximumAmount()),
             'Synthèse (' . $estimate->getAiSource() . ') : ' . ($estimate->getAiSummary() ?: 'Non disponible'),
             '',
@@ -60,6 +62,10 @@ class QuoteEstimateNotificationService
         }
 
         if (is_array($value)) {
+            if (isset($value['label']) && is_string($value['label'])) {
+                return $value['label'];
+            }
+
             return implode(', ', array_map(fn ($item): string => $this->stringifyAnswer($item), $value));
         }
 

@@ -26,6 +26,16 @@ class QuoteEstimate
     #[ORM\Column(type: 'string', length: 40)]
     private string $serviceKey;
 
+    #[ORM\Column(type: 'string', length: 60, nullable: true)]
+    private ?string $offerKey = null;
+
+    #[ORM\Column(type: 'string', length: 60, nullable: true)]
+    private ?string $variantKey = null;
+
+    /** Grid version used for this estimate, so history stays readable after a price change. */
+    #[ORM\Column(type: 'integer')]
+    private int $pricingVersion = 1;
+
     #[ORM\Column(type: 'json')]
     private array $answers = [];
 
@@ -105,6 +115,36 @@ class QuoteEstimate
     public function setAnswers(array $answers): void
     {
         $this->answers = array_filter($answers, static fn ($value): bool => $value !== null);
+    }
+
+    public function getOfferKey(): ?string
+    {
+        return $this->offerKey;
+    }
+
+    public function setOfferKey(?string $offerKey): void
+    {
+        $this->offerKey = $offerKey;
+    }
+
+    public function getVariantKey(): ?string
+    {
+        return $this->variantKey;
+    }
+
+    public function setVariantKey(?string $variantKey): void
+    {
+        $this->variantKey = $variantKey;
+    }
+
+    public function getPricingVersion(): int
+    {
+        return $this->pricingVersion;
+    }
+
+    public function setPricingVersion(int $pricingVersion): void
+    {
+        $this->pricingVersion = $pricingVersion;
     }
 
     public function getFullName(): string
