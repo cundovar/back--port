@@ -14,6 +14,8 @@ parameters:
     openai.bulletin_style: '%env(OPENAI_BULLETIN_STYLE)%'
     github.username: '%env(GITHUB_USERNAME)%'
     github.token: '%env(GITHUB_TOKEN)%'
+    contact.recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
+    contact.sender_email: '%env(MAILER_FROM_EMAIL)%'
 
 services:
     # default configuration for services in *this* file
@@ -47,6 +49,11 @@ services:
             $openAiModel: '%openai.model%'
             $defaultMaxWords: '%openai.bulletin_max_words%'
             $style: '%openai.bulletin_style%'
+
+    App\Controller\ContactRequestController:
+        arguments:
+            $recipientEmail: '%contact.recipient_email%'
+            $senderEmail: '%contact.sender_email%'
 
     App\Service\SkillsSnapshotService:
         arguments:

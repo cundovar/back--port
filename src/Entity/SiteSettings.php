@@ -22,7 +22,7 @@ class SiteSettings
     private ?string $logoUrl = null;
 
     #[ORM\Column(type: "string", length: 180)]
-    private string $contactEmail = "varascundo@gmail.com";
+    private string $contactEmail = "varas.cundo@gmail.com";
 
     #[ORM\Column(type: "string", length: 255)]
     private string $siteUrl = "https://devdoc.varascundo.com/spa/";

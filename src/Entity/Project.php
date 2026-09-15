@@ -10,6 +10,13 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: "projects")]
 class Project
 {
+    public const STATUS_DRAFT = 'draft';
+    public const STATUS_PUBLISHED = 'published';
+    public const STATUS_IN_PROGRESS = 'in_progress';
+    public const STATUS_ARCHIVED = 'archived';
+    public const PUBLIC_STATUSES = [self::STATUS_PUBLISHED, self::STATUS_IN_PROGRESS];
+    public const STATUSES = [self::STATUS_DRAFT, self::STATUS_PUBLISHED, self::STATUS_IN_PROGRESS, self::STATUS_ARCHIVED];
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type: "integer")]
@@ -17,6 +24,9 @@ class Project
 
     #[ORM\Column(type: "string", length: 160)]
     private string $name;
+
+    #[ORM\Column(type: "string", length: 180)]
+    private string $slug = '';
 
     #[ORM\Column(type: "string", length: 200)]
     private string $stack;
@@ -40,7 +50,28 @@ class Project
     private ?string $duration = null;
 
     #[ORM\Column(type: "string", length: 16)]
-    private string $status = "wip";
+    private string $status = self::STATUS_DRAFT;
+
+    #[ORM\Column(type: "text", nullable: true)]
+    private ?string $clientProblem = null;
+
+    #[ORM\Column(type: "text", nullable: true)]
+    private ?string $mission = null;
+
+    #[ORM\Column(type: "text", nullable: true)]
+    private ?string $solution = null;
+
+    #[ORM\Column(type: "json")]
+    private array $outcomes = [];
+
+    #[ORM\Column(type: "json")]
+    private array $serviceTags = [];
+
+    #[ORM\Column(type: "boolean")]
+    private bool $featured = false;
+
+    #[ORM\Column(type: "integer")]
+    private int $sortOrder = 0;
 
     #[ORM\Column(type: "datetime_immutable")]
     private \DateTimeImmutable $createdAt;
@@ -73,6 +104,16 @@ class Project
     public function setName(string $value): void
     {
         $this->name = $value;
+    }
+
+    public function getSlug(): string
+    {
+        return $this->slug;
+    }
+
+    public function setSlug(string $value): void
+    {
+        $this->slug = $value;
     }
 
     public function getStack(): string
@@ -152,7 +193,85 @@ class Project
 
     public function setStatus(string $value): void
     {
+        if ($value === 'wip') {
+            $value = self::STATUS_IN_PROGRESS;
+        }
+
+        if (!in_array($value, self::STATUSES, true)) {
+            $value = self::STATUS_DRAFT;
+        }
+
         $this->status = $value;
+    }
+
+    public function getClientProblem(): ?string
+    {
+        return $this->clientProblem;
+    }
+
+    public function setClientProblem(?string $value): void
+    {
+        $this->clientProblem = $value;
+    }
+
+    public function getMission(): ?string
+    {
+        return $this->mission;
+    }
+
+    public function setMission(?string $value): void
+    {
+        $this->mission = $value;
+    }
+
+    public function getSolution(): ?string
+    {
+        return $this->solution;
+    }
+
+    public function setSolution(?string $value): void
+    {
+        $this->solution = $value;
+    }
+
+    public function getOutcomes(): array
+    {
+        return $this->outcomes;
+    }
+
+    public function setOutcomes(array $value): void
+    {
+        $this->outcomes = array_values(array_filter($value, static fn ($item): bool => is_string($item) && trim($item) !== ''));
+    }
+
+    public function getServiceTags(): array
+    {
+        return $this->serviceTags;
+    }
+
+    public function setServiceTags(array $value): void
+    {
+        $this->serviceTags = array_values(array_filter($value, static fn ($item): bool => is_string($item) && trim($item) !== ''));
+    }
+
+    public function isFeatured(): bool
+    {
+        return $this->featured;
+    }
+
+    public function setFeatured(bool $value): void
+    {
+        $this->featured = $value;
+    }
+
+    public function getSortOrder(): int
+    {
+        return $this->sortOrder;
+    }
+
+    public function setSortOrder(int $value): void
+    {
+        $this->sortOrder = $value;
     }
 
     public function getCreatedAt(): \DateTimeImmutable
