@@ -83,7 +83,7 @@ final class DeepSeekQuoteAnalysisServiceTest extends TestCase
             self::fail('No HTTP call should be made without an API key.');
         });
 
-        $service = new DeepSeekQuoteAnalysisService($client, new NullLogger(), '', 'gpt-4o-mini', 300, 0.3);
+        $service = new DeepSeekQuoteAnalysisService($client, new NullLogger(), '', 'deepseek-chat', 300, 0.3);
         $result = $service->analyze(self::CONTEXT, self::DETAIL);
 
         self::assertSame('fallback', $result['source']);
@@ -105,11 +105,38 @@ final class DeepSeekQuoteAnalysisServiceTest extends TestCase
         self::assertIsString($capturedBody);
         self::assertStringNotContainsString('@example.com', $capturedBody);
         self::assertStringContainsString('Automatisation', $capturedBody);
+        self::assertSame('deepseek-chat', json_decode($capturedBody, true, flags: JSON_THROW_ON_ERROR)['model']);
+    }
+
+    public function testUndecodableHttpResponseFallsBack(): void
+    {
+        $client = new MockHttpClient(new MockResponse('<html>gateway failure</html>', [
+            'http_code' => 502,
+            'response_headers' => ['content-type: text/html'],
+        ]));
+
+        $result = $this->service($client)->analyze(self::CONTEXT, self::DETAIL);
+
+        self::assertSame('fallback', $result['source']);
+    }
+
+    public function testOversizedStructuredOutputFallsBack(): void
+    {
+        $client = $this->clientReturningContent(json_encode([
+            'summary' => 'Projet clair.',
+            'recommendedScope' => ['a', 'b', 'c', 'd'],
+            'missingQuestions' => [],
+            'riskFlags' => [],
+        ], JSON_THROW_ON_ERROR));
+
+        $result = $this->service($client)->analyze(self::CONTEXT, self::DETAIL);
+
+        self::assertSame('fallback', $result['source']);
     }
 
     private function service(HttpClientInterface $client): DeepSeekQuoteAnalysisService
     {
-        return new DeepSeekQuoteAnalysisService($client, new NullLogger(), 'sk-test', 'gpt-4o-mini', 300, 0.3);
+        return new DeepSeekQuoteAnalysisService($client, new NullLogger(), 'sk-test', 'deepseek-chat', 300, 0.3);
     }
 
     private function clientReturningContent(string $content): MockHttpClient

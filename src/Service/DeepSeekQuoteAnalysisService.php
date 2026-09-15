@@ -6,6 +6,7 @@ namespace App\Service;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\DecodingExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -13,6 +14,11 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 class DeepSeekQuoteAnalysisService
 {
     private const API_URL = 'https://api.deepseek.com/chat/completions';
+    private const MAX_SUMMARY_LENGTH = 600;
+    private const MAX_LIST_ITEM_LENGTH = 240;
+    private const MAX_RECOMMENDED_SCOPE_ITEMS = 3;
+    private const MAX_MISSING_QUESTIONS_ITEMS = 3;
+    private const MAX_RISK_FLAGS_ITEMS = 2;
 
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -85,21 +91,41 @@ class DeepSeekQuoteAnalysisService
                 return $this->fallback($projectContext);
             }
 
-            $summary = $decoded['summary'] ?? null;
-            if (!is_string($summary) || trim($summary) === '') {
-                $this->logger->error('Quote AI analysis returned no usable summary.');
+            $allowedKeys = ['summary', 'recommendedScope', 'missingQuestions', 'riskFlags'];
+            if (array_diff(array_keys($decoded), $allowedKeys) !== []) {
+                $this->logger->error('Quote AI analysis returned unexpected fields.');
+
+                return $this->fallback($projectContext);
+            }
+
+            $summary = $this->normalizeSummary($decoded['summary'] ?? null);
+            $recommendedScope = $this->normalizeStringList(
+                $decoded['recommendedScope'] ?? [],
+                self::MAX_RECOMMENDED_SCOPE_ITEMS,
+            );
+            $missingQuestions = $this->normalizeStringList(
+                $decoded['missingQuestions'] ?? [],
+                self::MAX_MISSING_QUESTIONS_ITEMS,
+            );
+            $riskFlags = $this->normalizeStringList(
+                $decoded['riskFlags'] ?? [],
+                self::MAX_RISK_FLAGS_ITEMS,
+            );
+
+            if ($summary === null || $recommendedScope === null || $missingQuestions === null || $riskFlags === null) {
+                $this->logger->error('Quote AI analysis returned a payload outside the expected schema.');
 
                 return $this->fallback($projectContext);
             }
 
             return [
-                'summary' => trim($summary),
-                'recommendedScope' => $this->normalizeStringList($decoded['recommendedScope'] ?? []),
-                'missingQuestions' => $this->normalizeStringList($decoded['missingQuestions'] ?? []),
-                'riskFlags' => $this->normalizeStringList($decoded['riskFlags'] ?? []),
+                'summary' => $summary,
+                'recommendedScope' => $recommendedScope,
+                'missingQuestions' => $missingQuestions,
+                'riskFlags' => $riskFlags,
                 'source' => 'deepseek',
             ];
-        } catch (TransportExceptionInterface | ClientExceptionInterface | ServerExceptionInterface $exception) {
+        } catch (TransportExceptionInterface | ClientExceptionInterface | ServerExceptionInterface | DecodingExceptionInterface $exception) {
             $this->logger->error('Quote AI analysis failed.', ['exception' => $exception]);
 
             return $this->fallback($projectContext);
@@ -156,20 +182,42 @@ class DeepSeekQuoteAnalysisService
         ];
     }
 
-    /**
-     * @return string[]
-     */
-    private function normalizeStringList(mixed $value): array
+    private function normalizeSummary(mixed $value): ?string
     {
-        if (!is_array($value)) {
-            return [];
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $summary = trim($value);
+
+        return $summary !== '' && mb_strlen($summary) <= self::MAX_SUMMARY_LENGTH ? $summary : null;
+    }
+
+    /**
+     * @return string[]|null
+     */
+    private function normalizeStringList(mixed $value, int $maxItems): ?array
+    {
+        if (!is_array($value) || count($value) > $maxItems) {
+            return null;
         }
 
         $items = [];
         foreach ($value as $item) {
-            if (is_string($item) && trim($item) !== '') {
-                $items[] = trim($item);
+            if (!is_string($item)) {
+                return null;
             }
+
+            $normalized = trim($item);
+            if ($normalized === '') {
+                continue;
+            }
+
+            if (mb_strlen($normalized) > self::MAX_LIST_ITEM_LENGTH) {
+                return null;
+            }
+
+            $items[] = $normalized;
         }
 
         return $items;

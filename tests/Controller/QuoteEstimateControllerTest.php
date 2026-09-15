@@ -30,6 +30,7 @@ final class QuoteEstimateControllerTest extends TestCase
         'projectDescription' => 'Automatiser la relance client.',
         'fullName' => 'Jane Doe',
         'email' => 'jane@example.com',
+        'consentAccepted' => true,
     ];
 
     public function testValidSubmissionPersistsAndReturnsEstimate(): void
@@ -124,6 +125,50 @@ final class QuoteEstimateControllerTest extends TestCase
         self::assertSame(422, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
         self::assertSame('invalid_catalog_value', $body['error']);
+    }
+
+    public function testOversizedOptionalContactFieldIsRejectedBeforeAiCall(): void
+    {
+        $payload = self::VALID_PAYLOAD;
+        $payload['company'] = str_repeat('x', 121);
+
+        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
+        $analysis->expects(self::never())->method('analyze');
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects(self::never())->method('persist');
+
+        $controller = new QuoteEstimateController(
+            new QuoteEstimateCalculator(),
+            $analysis,
+            $this->createStub(QuoteEstimateNotificationService::class),
+            $this->limiterFactory(true),
+        );
+
+        $this->expectException(BadRequestHttpException::class);
+        $controller->create($this->jsonRequest($payload), $em);
+    }
+
+    public function testMissingConsentIsRejectedBeforeAiCall(): void
+    {
+        $payload = self::VALID_PAYLOAD;
+        unset($payload['consentAccepted']);
+
+        $analysis = $this->createMock(DeepSeekQuoteAnalysisService::class);
+        $analysis->expects(self::never())->method('analyze');
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects(self::never())->method('persist');
+
+        $controller = new QuoteEstimateController(
+            new QuoteEstimateCalculator(),
+            $analysis,
+            $this->createStub(QuoteEstimateNotificationService::class),
+            $this->limiterFactory(true),
+        );
+
+        $this->expectException(BadRequestHttpException::class);
+        $controller->create($this->jsonRequest($payload), $em);
     }
 
     public function testHoneypotIsSilentlyDiscarded(): void

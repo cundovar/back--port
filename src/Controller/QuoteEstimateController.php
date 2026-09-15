@@ -25,6 +25,8 @@ final class QuoteEstimateController
     private const MAX_DESCRIPTION_LENGTH = 600;
     private const MAX_NAME_LENGTH = 120;
     private const MAX_EMAIL_LENGTH = 255;
+    private const MAX_COMPANY_LENGTH = 120;
+    private const MAX_PHONE_LENGTH = 40;
     private const MAX_INTEGRATIONS_INPUT = 20;
 
     private const DISCLAIMER = 'Estimation indicative, non contractuelle.';
@@ -80,9 +82,8 @@ final class QuoteEstimateController
             );
         }
 
-        $input = $this->validatePayload($payload);
-
         try {
+            $input = $this->validatePayload($payload);
             $calculation = $this->calculator->calculate(
                 $input['serviceKey'],
                 $input['complexity'],
@@ -112,6 +113,7 @@ final class QuoteEstimateController
             'urgency' => $input['urgency'],
             'trainingNeed' => $input['trainingNeed'],
             'projectDescription' => $input['projectDescription'],
+            'consentAccepted' => $input['consentAccepted'],
         ]);
         $estimate->setFullName($input['fullName']);
         $estimate->setEmail($input['email']);
@@ -255,7 +257,7 @@ final class QuoteEstimateController
     }
 
     /**
-     * @return array{serviceKey:string,complexity:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingNeed:string,projectDescription:string,fullName:string,email:string,company:?string,phone:?string}
+     * @return array{serviceKey:string,complexity:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingNeed:string,projectDescription:string,fullName:string,email:string,company:?string,phone:?string,consentAccepted:bool}
      */
     private function validatePayload(array $payload): array
     {
@@ -267,6 +269,8 @@ final class QuoteEstimateController
 
         $fullName = trim((string) $payload['fullName']);
         $email = trim((string) $payload['email']);
+        $serviceKey = trim((string) $payload['serviceKey']);
+        $complexity = trim((string) $payload['complexity']);
 
         if (mb_strlen($fullName) > self::MAX_NAME_LENGTH || mb_strlen($email) > self::MAX_EMAIL_LENGTH) {
             throw new BadRequestHttpException('Field too long');
@@ -274,6 +278,14 @@ final class QuoteEstimateController
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new BadRequestHttpException('Invalid email');
+        }
+
+        if (!array_key_exists($serviceKey, self::SERVICE_LABELS)) {
+            throw new QuoteEstimateValidationException('Service key not in catalog.');
+        }
+
+        if (!array_key_exists($complexity, self::COMPLEXITY_LABELS)) {
+            throw new QuoteEstimateValidationException('Complexity not in catalog.');
         }
 
         $integrationsCount = $payload['integrationsCount'] ?? 0;
@@ -297,9 +309,20 @@ final class QuoteEstimateController
             throw new BadRequestHttpException('Invalid trainingNeed');
         }
 
+        if (!array_key_exists($trainingNeed, self::TRAINING_LABELS)) {
+            throw new QuoteEstimateValidationException('Training need not in catalog.');
+        }
+
+        $company = $this->validateOptionalString($payload, 'company', self::MAX_COMPANY_LENGTH);
+        $phone = $this->validateOptionalString($payload, 'phone', self::MAX_PHONE_LENGTH);
+
+        if (($payload['consentAccepted'] ?? null) !== true) {
+            throw new BadRequestHttpException('Consent is required');
+        }
+
         return [
-            'serviceKey' => trim((string) $payload['serviceKey']),
-            'complexity' => trim((string) $payload['complexity']),
+            'serviceKey' => $serviceKey,
+            'complexity' => $complexity,
             'integrationsCount' => $integrationsCount,
             'legacyTakeover' => (bool) ($payload['legacyTakeover'] ?? false),
             'urgency' => (bool) ($payload['urgency'] ?? false),
@@ -307,19 +330,34 @@ final class QuoteEstimateController
             'projectDescription' => trim($projectDescription),
             'fullName' => $fullName,
             'email' => $email,
-            'company' => isset($payload['company']) && is_string($payload['company']) && trim($payload['company']) !== ''
-                ? trim($payload['company'])
-                : null,
-            'phone' => isset($payload['phone']) && is_string($payload['phone']) && trim($payload['phone']) !== ''
-                ? trim($payload['phone'])
-                : null,
+            'company' => $company,
+            'phone' => $phone,
+            'consentAccepted' => true,
         ];
+    }
+
+    private function validateOptionalString(array $payload, string $field, int $maxLength): ?string
+    {
+        if (!array_key_exists($field, $payload) || $payload[$field] === null || $payload[$field] === '') {
+            return null;
+        }
+
+        if (!is_string($payload[$field])) {
+            throw new BadRequestHttpException(sprintf('Invalid %s', $field));
+        }
+
+        $value = trim($payload[$field]);
+        if (mb_strlen($value) > $maxLength) {
+            throw new BadRequestHttpException(sprintf('%s is too long', $field));
+        }
+
+        return $value !== '' ? $value : null;
     }
 
     /**
      * Personal contact details are deliberately excluded: the AI only ever sees project answers.
      *
-     * @param array{serviceKey:string,complexity:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingNeed:string,projectDescription:string,fullName:string,email:string,company:?string,phone:?string} $input
+     * @param array{serviceKey:string,complexity:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingNeed:string,projectDescription:string,fullName:string,email:string,company:?string,phone:?string,consentAccepted:bool} $input
      *
      * @return array{serviceLabel:string,complexityLabel:string,integrationsCount:int,legacyTakeover:bool,urgency:bool,trainingLabel:string,projectDescription:string}
      */
