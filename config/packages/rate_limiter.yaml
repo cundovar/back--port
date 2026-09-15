@@ -1,0 +1,6 @@
+framework:
+    rate_limiter:
+        quote_estimate_public:
+            policy: 'sliding_window'
+            limit: 5
+            interval: '1 hour'

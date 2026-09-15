@@ -12,10 +12,16 @@ parameters:
     openai.summary_max_words: '%env(int:OPENAI_SUMMARY_MAX_WORDS)%'
     openai.bulletin_max_words: '%env(int:OPENAI_BULLETIN_MAX_WORDS)%'
     openai.bulletin_style: '%env(OPENAI_BULLETIN_STYLE)%'
+    deepseek.api_key: '%env(DEEPSEEK_API_KEY)%'
+    deepseek.model: '%env(DEEPSEEK_MODEL)%'
+    deepseek.quote_max_tokens: '%env(int:DEEPSEEK_QUOTE_MAX_TOKENS)%'
+    deepseek.quote_temperature: '%env(float:DEEPSEEK_QUOTE_TEMPERATURE)%'
     github.username: '%env(GITHUB_USERNAME)%'
     github.token: '%env(GITHUB_TOKEN)%'
     contact.recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
     contact.sender_email: '%env(MAILER_FROM_EMAIL)%'
+    quote.notification_recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
+    quote.notification_sender_email: '%env(MAILER_FROM_EMAIL)%'
 
 services:
     # default configuration for services in *this* file
@@ -58,6 +64,22 @@ services:
     App\Service\SkillsSnapshotService:
         arguments:
             $summaryMaxWords: '%openai.summary_max_words%'
+
+    App\Service\DeepSeekQuoteAnalysisService:
+        arguments:
+            $deepSeekApiKey: '%deepseek.api_key%'
+            $deepSeekModel: '%deepseek.model%'
+            $maxTokens: '%deepseek.quote_max_tokens%'
+            $temperature: '%deepseek.quote_temperature%'
+
+    App\Service\QuoteEstimateNotificationService:
+        arguments:
+            $recipientEmail: '%quote.notification_recipient_email%'
+            $senderEmail: '%quote.notification_sender_email%'
+
+    App\Controller\QuoteEstimateController:
+        arguments:
+            $quoteEstimatePublicLimiter: '@limiter.quote_estimate_public'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
