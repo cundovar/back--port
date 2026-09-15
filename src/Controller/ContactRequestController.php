@@ -6,19 +6,18 @@ namespace App\Controller;
 
 use App\Entity\ContactRequest;
 use App\Security\AdminTokenGuard;
+use App\Service\BrevoEmailSender;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Symfony\Component\Mailer\MailerInterface;
-use Symfony\Component\Mime\Email;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class ContactRequestController
 {
     public function __construct(
-        private readonly MailerInterface $mailer,
+        private readonly BrevoEmailSender $brevoEmailSender,
         private readonly string $recipientEmail,
         private readonly string $senderEmail,
     ) {
@@ -43,15 +42,15 @@ final class ContactRequestController
         $em->persist($contactRequest);
         $em->flush();
 
-        $this->mailer->send((new Email())
-            ->from($this->senderEmail)
-            ->to($this->recipientEmail)
-            ->replyTo($contactRequest->getEmail())
-            ->subject(sprintf('Nouvelle demande de contact — %s', $contactRequest->getFullName()))
-            ->text($this->formatEmailBody($contactRequest))
+        $notificationSent = $this->brevoEmailSender->send(
+            $this->brevoApiKey(),
+            $this->senderEmail,
+            $this->recipientEmail,
+            sprintf('Nouvelle demande de contact — %s', $contactRequest->getFullName()),
+            $this->formatEmailBody($contactRequest),
         );
 
-        return new JsonResponse(['ok' => true], 201);
+        return new JsonResponse(['ok' => true, 'notificationSent' => $notificationSent], $notificationSent ? 201 : 202);
     }
 
     #[Route('/api/admin/contact-requests', methods: ['GET'])]
@@ -192,5 +191,12 @@ final class ContactRequestController
             'Message :',
             $request->getMessage(),
         ]);
+    }
+
+    private function brevoApiKey(): string
+    {
+        $apiKey = $_SERVER['BREVO_API_KEY'] ?? $_ENV['BREVO_API_KEY'] ?? getenv('BREVO_API_KEY') ?: '';
+
+        return is_string($apiKey) ? $apiKey : '';
     }
 }
