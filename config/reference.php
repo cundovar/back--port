@@ -1287,6 +1287,154 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         skip_same_as_origin?: bool|Param,
  *     }>,
  * }
+ * @psalm-type MonologConfig = array{
+ *     use_microseconds?: scalar|null|Param, // Default: true
+ *     timezone?: string|Param, // The timezone used for the timestamp of every log record (e.g. "UTC" or "Europe/Paris"). Defaults to the PHP default timezone. // Default: null
+ *     channels?: list<scalar|null|Param>,
+ *     handlers?: array<string, array{ // Default: []
+ *         type: scalar|null|Param,
+ *         id?: scalar|null|Param,
+ *         enabled?: bool|Param, // Default: true
+ *         priority?: scalar|null|Param, // Default: 0
+ *         level?: scalar|null|Param, // Default: "DEBUG"
+ *         bubble?: bool|Param, // Default: true
+ *         interactive_only?: bool|Param, // Default: false
+ *         app_name?: scalar|null|Param, // Default: null
+ *         include_stacktraces?: bool|Param, // Default: false
+ *         base_path?: scalar|null|Param, // Default: null
+ *         process_psr_3_messages?: array{
+ *             enabled?: bool|null|Param, // Default: null
+ *             date_format?: scalar|null|Param,
+ *             remove_used_context_fields?: bool|Param,
+ *         },
+ *         path?: scalar|null|Param, // Default: "%kernel.logs_dir%/%kernel.environment%.log"
+ *         file_permission?: scalar|null|Param, // Default: null
+ *         use_locking?: bool|Param, // Default: false
+ *         filename_format?: scalar|null|Param, // Default: "{filename}-{date}"
+ *         date_format?: scalar|null|Param, // Default: "Y-m-d"
+ *         ident?: scalar|null|Param, // Default: "php"
+ *         logopts?: scalar|null|Param, // Default: 1
+ *         facility?: scalar|null|Param, // Default: "user"
+ *         max_files?: scalar|null|Param, // Default: 0
+ *         action_level?: scalar|null|Param, // Default: "WARNING"
+ *         activation_strategy?: scalar|null|Param, // Default: null
+ *         stop_buffering?: bool|Param, // Default: true
+ *         passthru_level?: scalar|null|Param, // Default: null
+ *         excluded_http_codes?: list<array{ // Default: []
+ *             code?: scalar|null|Param,
+ *             urls?: list<scalar|null|Param>,
+ *         }>,
+ *         accepted_levels?: list<scalar|null|Param>,
+ *         min_level?: scalar|null|Param, // Default: "DEBUG"
+ *         max_level?: scalar|null|Param, // Default: "EMERGENCY"
+ *         buffer_size?: scalar|null|Param, // Default: 0
+ *         flush_on_overflow?: bool|Param, // Default: false
+ *         handler?: scalar|null|Param,
+ *         url?: scalar|null|Param,
+ *         exchange?: scalar|null|Param,
+ *         exchange_name?: scalar|null|Param, // Default: "log"
+ *         channel?: scalar|null|Param, // Default: null
+ *         bot_name?: scalar|null|Param, // Default: "Monolog"
+ *         use_attachment?: scalar|null|Param, // Default: true
+ *         use_short_attachment?: scalar|null|Param, // Default: false
+ *         include_extra?: scalar|null|Param, // Default: false
+ *         icon_emoji?: scalar|null|Param, // Default: null
+ *         webhook_url?: scalar|null|Param,
+ *         exclude_fields?: list<scalar|null|Param>,
+ *         token?: scalar|null|Param,
+ *         region?: scalar|null|Param,
+ *         source?: scalar|null|Param,
+ *         use_ssl?: bool|Param, // Default: true
+ *         user?: mixed,
+ *         title?: scalar|null|Param, // Default: null
+ *         host?: scalar|null|Param, // Default: null
+ *         port?: scalar|null|Param, // Default: 514
+ *         rfc?: scalar|null|Param, // Default: 1
+ *         config?: list<scalar|null|Param>,
+ *         members?: list<scalar|null|Param>,
+ *         connection_string?: scalar|null|Param,
+ *         timeout?: scalar|null|Param,
+ *         time?: scalar|null|Param, // Default: 60
+ *         deduplication_level?: scalar|null|Param, // Default: 400
+ *         store?: scalar|null|Param, // Default: null
+ *         connection_timeout?: scalar|null|Param,
+ *         persistent?: bool|Param,
+ *         message_type?: scalar|null|Param, // Default: 0
+ *         expand_newlines?: bool|Param, // Default: false
+ *         parse_mode?: scalar|null|Param, // Default: null
+ *         disable_webpage_preview?: bool|null|Param, // Default: null
+ *         disable_notification?: bool|null|Param, // Default: null
+ *         split_long_messages?: bool|Param, // Default: false
+ *         delay_between_messages?: bool|Param, // Default: false
+ *         topic?: int|Param, // Default: null
+ *         factor?: int|Param, // Default: 1
+ *         tags?: list<scalar|null|Param>,
+ *         console_formatter_options?: mixed, // Default: []
+ *         formatter?: scalar|null|Param,
+ *         nested?: bool|Param, // Default: false
+ *         publisher?: string|array{
+ *             id?: scalar|null|Param,
+ *             hostname?: scalar|null|Param,
+ *             port?: scalar|null|Param, // Default: 12201
+ *             chunk_size?: scalar|null|Param, // Default: 1420
+ *             encoder?: "json"|"compressed_json"|Param,
+ *         },
+ *         mongodb?: string|array{
+ *             id?: scalar|null|Param, // ID of a MongoDB\Client service
+ *             uri?: scalar|null|Param,
+ *             username?: scalar|null|Param,
+ *             password?: scalar|null|Param,
+ *             database?: scalar|null|Param, // Default: "monolog"
+ *             collection?: scalar|null|Param, // Default: "logs"
+ *         },
+ *         elasticsearch?: string|array{
+ *             id?: scalar|null|Param,
+ *             hosts?: list<scalar|null|Param>,
+ *             host?: scalar|null|Param,
+ *             port?: scalar|null|Param, // Default: 9200
+ *             transport?: scalar|null|Param, // Default: "Http"
+ *             user?: scalar|null|Param, // Default: null
+ *             password?: scalar|null|Param, // Default: null
+ *         },
+ *         index?: scalar|null|Param, // Default: "monolog"
+ *         document_type?: scalar|null|Param, // Default: "logs"
+ *         ignore_error?: scalar|null|Param, // Default: false
+ *         redis?: string|array{
+ *             id?: scalar|null|Param,
+ *             host?: scalar|null|Param,
+ *             password?: scalar|null|Param, // Default: null
+ *             port?: scalar|null|Param, // Default: 6379
+ *             database?: scalar|null|Param, // Default: 0
+ *             key_name?: scalar|null|Param, // Default: "monolog_redis"
+ *         },
+ *         predis?: string|array{ // Deprecated: The "predis" option is deprecated and ignored, use the "redis" option to configure the Predis client.
+ *             id?: scalar|null|Param,
+ *             host?: scalar|null|Param,
+ *         },
+ *         from_email?: scalar|null|Param,
+ *         to_email?: list<scalar|null|Param>,
+ *         subject?: scalar|null|Param,
+ *         content_type?: scalar|null|Param, // Default: null
+ *         headers?: list<scalar|null|Param>,
+ *         parameters?: list<scalar|null|Param>,
+ *         mailer?: scalar|null|Param, // Default: null
+ *         email_prototype?: string|array{
+ *             id: scalar|null|Param,
+ *             method?: scalar|null|Param, // Default: null
+ *         },
+ *         verbosity_levels?: array{
+ *             VERBOSITY_QUIET?: scalar|null|Param, // Default: "ERROR"
+ *             VERBOSITY_NORMAL?: scalar|null|Param, // Default: "WARNING"
+ *             VERBOSITY_VERBOSE?: scalar|null|Param, // Default: "NOTICE"
+ *             VERBOSITY_VERY_VERBOSE?: scalar|null|Param, // Default: "INFO"
+ *             VERBOSITY_DEBUG?: scalar|null|Param, // Default: "DEBUG"
+ *         },
+ *         channels?: string|array{
+ *             type?: scalar|null|Param,
+ *             elements?: list<scalar|null|Param>,
+ *         },
+ *     }>,
+ * }
  * @psalm-type ConfigType = array{
  *     imports?: ImportsConfig,
  *     parameters?: ParametersConfig,
@@ -1296,6 +1444,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     doctrine_migrations?: DoctrineMigrationsConfig,
  *     security?: SecurityConfig,
  *     nelmio_cors?: NelmioCorsConfig,
+ *     monolog?: MonologConfig,
  *     "when@dev"?: array{
  *         imports?: ImportsConfig,
  *         parameters?: ParametersConfig,
@@ -1306,6 +1455,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         security?: SecurityConfig,
  *         maker?: MakerConfig,
  *         nelmio_cors?: NelmioCorsConfig,
+ *         monolog?: MonologConfig,
  *     },
  *     "when@prod"?: array{
  *         imports?: ImportsConfig,
@@ -1316,6 +1466,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         doctrine_migrations?: DoctrineMigrationsConfig,
  *         security?: SecurityConfig,
  *         nelmio_cors?: NelmioCorsConfig,
+ *         monolog?: MonologConfig,
  *     },
  *     "when@test"?: array{
  *         imports?: ImportsConfig,
@@ -1326,6 +1477,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         doctrine_migrations?: DoctrineMigrationsConfig,
  *         security?: SecurityConfig,
  *         nelmio_cors?: NelmioCorsConfig,
+ *         monolog?: MonologConfig,
  *     },
  *     ...<string, ExtensionType|array{ // extra keys must follow the when@%env% pattern or match an extension alias
  *         imports?: ImportsConfig,
