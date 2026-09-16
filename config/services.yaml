@@ -23,6 +23,9 @@ parameters:
     contact.sender_email: '%env(MAILER_FROM_EMAIL)%'
     quote.notification_recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
     quote.notification_sender_email: '%env(MAILER_FROM_EMAIL)%'
+    # Signs the acknowledgement sent to the prospect. Versioned on purpose: no
+    # new environment variable to declare on the server before deploying.
+    quote.notification_signature: 'Facundo'
 
 services:
     # default configuration for services in *this* file
@@ -89,6 +92,7 @@ services:
         arguments:
             $recipientEmail: '%quote.notification_recipient_email%'
             $senderEmail: '%quote.notification_sender_email%'
+            $signatureName: '%quote.notification_signature%'
 
     App\Controller\QuoteEstimateController:
         arguments:

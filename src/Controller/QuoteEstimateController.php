@@ -153,6 +153,10 @@ final class QuoteEstimateController
         $em->flush();
 
         $this->notificationService->notify($estimate);
+        // The prospect gets a written trace of what they asked for. Both sends
+        // return false instead of throwing: a mail outage never invalidates an
+        // estimate that is already saved.
+        $this->notificationService->notifyClient($estimate);
 
         return new JsonResponse(
             $this->presentCalculation($calculation, $configuration->getVersion()) + [

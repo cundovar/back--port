@@ -46,6 +46,7 @@ final class QuoteEstimateControllerTest extends TestCase
 
         $notification = $this->createMock(QuoteEstimateNotificationService::class);
         $notification->expects(self::never())->method('notify');
+        $notification->expects(self::never())->method('notifyClient');
 
         $response = $this->controller($analysis, $notification)->preview($this->jsonRequest(self::PROJECT_ANSWERS));
 
@@ -309,6 +310,46 @@ final class QuoteEstimateControllerTest extends TestCase
         foreach (['claire', 'example.com', 'cabinet martin', '0600000000'] as $personal) {
             self::assertStringNotContainsString($personal, $flattened);
         }
+    }
+
+    public function testSubmissionAcknowledgesTheProspectAsWellAsTheOwner(): void
+    {
+        $notification = $this->createMock(QuoteEstimateNotificationService::class);
+        $notification->expects(self::once())->method('notify');
+        $notification->expects(self::once())->method('notifyClient');
+
+        $response = $this->controller(null, $notification)->create(
+            $this->jsonRequest(self::PROJECT_ANSWERS + self::CONTACT),
+            $this->persistingEntityManager(),
+        );
+
+        self::assertSame(201, $response->getStatusCode());
+    }
+
+    /**
+     * A mail outage must never invalidate an estimate that is already saved.
+     */
+    public function testSubmissionSucceedsWhenTheClientAcknowledgementCannotBeSent(): void
+    {
+        $notification = $this->createStub(QuoteEstimateNotificationService::class);
+        $notification->method('notify')->willReturn(false);
+        $notification->method('notifyClient')->willReturn(false);
+
+        $response = $this->controller(null, $notification)->create(
+            $this->jsonRequest(self::PROJECT_ANSWERS + self::CONTACT),
+            $this->persistingEntityManager(),
+        );
+
+        self::assertSame(201, $response->getStatusCode());
+    }
+
+    private function persistingEntityManager(): EntityManagerInterface
+    {
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects(self::once())->method('persist');
+        $em->expects(self::once())->method('flush');
+
+        return $em;
     }
 
     private function controller(
