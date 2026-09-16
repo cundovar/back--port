@@ -113,6 +113,7 @@ Migrations concernées :
 | `Version20260915220000` | crée `portfolio_quote_pricing`, insère la grille initiale, ajoute `pricing_version`, `offer_key`, `variant_key` sur `portfolio_quote_estimates` |
 | `Version20260915233000` | ajoute le drapeau `contentQuestion` aux offres de la grille déjà stockée (aucune modification de schéma) |
 | `Version20260916090000` | ajoute `pricingMode`, `priorityAmount` et la liste des outils à la grille stockée ; retire le multiplicateur d'urgence (aucune modification de schéma) |
+| `Version20260916100000` | incrémente la version de la grille après la transformation afin de distinguer les estimations historiques |
 
 Aucune de ces migrations ne lit ni ne modifie une table `massage_*`.
 
