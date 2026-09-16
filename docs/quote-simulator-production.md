@@ -45,7 +45,8 @@ Une offre qui contient au moins une variante `fixed` ou `from` n'accepte que des
 à montant unique, et le supplément de rédaction doit l'être aussi : sinon un pack ferme
 redeviendrait une fourchette dès la première option cochée. La validation le refuse.
 
-Le délai prioritaire est un **montant fixe par variante**, plus un multiplicateur global.
+Le délai prioritaire est un **montant fixe par variante** ; aucun multiplicateur global
+n'est appliqué.
 
 Les deux recalculent le montant côté serveur à partir du catalogue actif : un montant
 envoyé par le client est toujours ignoré.
