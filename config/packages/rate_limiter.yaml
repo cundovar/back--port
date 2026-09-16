@@ -6,6 +6,12 @@ framework:
             policy: 'sliding_window'
             limit: 30
             interval: '1 hour'
+        # Each recommendation is a paid model call, so it is tighter than the
+        # free preview but generous enough to explore two or three needs.
+        quote_recommendation:
+            policy: 'sliding_window'
+            limit: 10
+            interval: '1 hour'
         # Final submission triggers DeepSeek, a DB write and an email.
         quote_estimate_public:
             policy: 'sliding_window'

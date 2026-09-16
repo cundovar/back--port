@@ -16,6 +16,7 @@ parameters:
     deepseek.model: '%env(DEEPSEEK_MODEL)%'
     deepseek.quote_max_tokens: '%env(int:DEEPSEEK_QUOTE_MAX_TOKENS)%'
     deepseek.quote_temperature: '%env(float:DEEPSEEK_QUOTE_TEMPERATURE)%'
+    deepseek.recommendation_timeout: '%env(int:DEEPSEEK_RECOMMENDATION_TIMEOUT)%'
     github.username: '%env(GITHUB_USERNAME)%'
     github.token: '%env(GITHUB_TOKEN)%'
     contact.recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
@@ -71,6 +72,18 @@ services:
             $deepSeekModel: '%deepseek.model%'
             $maxTokens: '%deepseek.quote_max_tokens%'
             $temperature: '%deepseek.quote_temperature%'
+
+    App\Service\DeepSeekQuoteRecommendationService:
+        arguments:
+            $deepSeekApiKey: '%deepseek.api_key%'
+            $deepSeekModel: '%deepseek.model%'
+            $maxTokens: '%deepseek.quote_max_tokens%'
+            $temperature: '%deepseek.quote_temperature%'
+            $timeout: '%deepseek.recommendation_timeout%'
+
+    App\Controller\QuoteRecommendationController:
+        arguments:
+            $quoteRecommendationLimiter: '@limiter.quote_recommendation'
 
     App\Service\QuoteEstimateNotificationService:
         arguments:

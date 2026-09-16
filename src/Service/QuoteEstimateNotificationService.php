@@ -42,17 +42,65 @@ class QuoteEstimateNotificationService
             'Prestation : ' . ($answers['offerLabel'] ?? $estimate->getServiceKey()),
             'Formule : ' . ($answers['variantLabel'] ?? '—'),
             'Grille tarifaire : version ' . $estimate->getPricingVersion(),
-            sprintf('Fourchette : %d € – %d €', $estimate->getMinimumAmount(), $estimate->getMaximumAmount()),
-            'Synthèse (' . $estimate->getAiSource() . ') : ' . ($estimate->getAiSummary() ?: 'Non disponible'),
+            'Montant : ' . $this->formatAmount($estimate, $answers),
+            $answers['disclaimer'] ?? '',
+            '',
+            // Contractual scope, taken from the catalog frozen with the estimate.
+            'Ce qui est compris :',
+            $this->formatList($answers['includes'] ?? [], 'Aucun élément enregistré'),
+            '',
+            'Options retenues :',
+            $this->formatList(array_column($answers['selectedOptions'] ?? [], 'label'), 'Aucune option'),
+            '',
+            'Outils déjà utilisés : ' . ($this->formatInline($answers['toolLabels'] ?? []) ?: 'Non précisés'),
+            '',
+            // Qualification only: never an engagement, never part of the price.
+            'Qualification IA (' . $estimate->getAiSource() . ') : ' . ($estimate->getAiSummary() ?: 'Non disponible'),
             '',
             'Réponses :',
         ];
 
+        $rendered = ['offerLabel', 'variantLabel', 'selectedOptions', 'includes', 'pricingMode', 'disclaimer', 'toolKeys', 'toolLabels'];
         foreach ($answers as $key => $value) {
-            $lines[] = sprintf('- %s : %s', $key, $this->stringifyAnswer($value));
+            if (!in_array($key, $rendered, true)) {
+                $lines[] = sprintf('- %s : %s', $key, $this->stringifyAnswer($value));
+            }
         }
 
         return implode("\n", $lines);
+    }
+
+    private function formatAmount(QuoteEstimate $estimate, array $answers): string
+    {
+        $min = $estimate->getMinimumAmount();
+        $max = $estimate->getMaximumAmount();
+
+        return match ($answers['pricingMode'] ?? 'range') {
+            'fixed' => sprintf('%d € (prix ferme)', $min),
+            'from' => sprintf('à partir de %d €', $min),
+            default => $min === $max ? sprintf('%d €', $min) : sprintf('%d € – %d €', $min, $max),
+        };
+    }
+
+    private function formatList(mixed $items, string $empty): string
+    {
+        if (!is_array($items) || $items === []) {
+            return '- ' . $empty;
+        }
+
+        $lines = [];
+        foreach ($items as $item) {
+            if (is_string($item) && trim($item) !== '') {
+                $lines[] = '- ' . $item;
+            }
+        }
+
+        return $lines !== [] ? implode("\n", $lines) : '- ' . $empty;
+    }
+
+    private function formatInline(mixed $items): string
+    {
+        return is_array($items) ? implode(' · ', array_filter($items, 'is_string')) : '';
     }
 
     private function stringifyAnswer(mixed $value): string

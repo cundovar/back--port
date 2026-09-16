@@ -21,6 +21,15 @@ class QuoteEstimateCalculator
     public const STAGE_NEW = 'nouveau';
     public const STAGE_EXISTING = 'existant';
 
+    private const PRIORITY_LABEL = 'Délai prioritaire';
+
+    /** What the visitor is legally told, per commercial mode of the variant. */
+    private const DISCLAIMERS = [
+        QuotePricingCatalog::MODE_FIXED => 'Prix ferme pour le périmètre décrit ci-dessus.',
+        QuotePricingCatalog::MODE_FROM => 'Prix de départ pour le périmètre décrit ; ce qui sera ajouté ensemble est chiffré à part.',
+        QuotePricingCatalog::MODE_RANGE => 'Estimation indicative, non contractuelle. Ce montant situe l’ordre de grandeur de votre projet ; il ne remplace pas un devis.',
+    ];
+
     private const DEADLINES = [self::DEADLINE_FLEXIBLE, self::DEADLINE_NORMAL, self::DEADLINE_PRIORITAIRE];
     private const CONTENT_STATES = [self::CONTENT_READY, self::CONTENT_TO_WRITE, self::CONTENT_UNKNOWN];
     private const STAGES = [self::STAGE_NEW, self::STAGE_EXISTING];
@@ -33,7 +42,8 @@ class QuoteEstimateCalculator
      * @param array{offerKey:string,variantKey:string,optionKeys:string[],projectStage:string,contentReadiness:string,deadline:string} $answers
      *
      * @return array{
-     *     offerKey:string, offerLabel:string, contentQuestion:bool, variantKey:string, variantLabel:string,
+     *     offerKey:string, offerLabel:string, contentQuestion:bool, pricingMode:string, disclaimer:string,
+     *     variantKey:string, variantLabel:string,
      *     minimumAmount:int, maximumAmount:int,
      *     includes:string[], selectedOptions:array<int, array{key:string,label:string}>,
      *     calculationDetail:array<int, array{label:string,impactMin:int,impactMax:int}>
@@ -103,18 +113,20 @@ class QuoteEstimateCalculator
             ];
         }
 
-        if ($answers['deadline'] === self::DEADLINE_PRIORITAIRE && isset($adjustments['priorityDelay'])) {
-            $multiplier = (float) $adjustments['priorityDelay']['multiplier'];
-            $impactMin = (int) round($min * ($multiplier - 1.0));
-            $impactMax = (int) round($max * ($multiplier - 1.0));
-            $min += $impactMin;
-            $max += $impactMax;
+        // A flat supplement, not a multiplier: a multiplier would turn a committed
+        // pack back into a range as soon as the client is in a hurry.
+        $priorityAmount = (int) ($variant['priorityAmount'] ?? 0);
+        if ($answers['deadline'] === self::DEADLINE_PRIORITAIRE && $priorityAmount > 0) {
+            $min += $priorityAmount;
+            $max += $priorityAmount;
             $detail[] = [
-                'label' => $adjustments['priorityDelay']['label'],
-                'impactMin' => $impactMin,
-                'impactMax' => $impactMax,
+                'label' => self::PRIORITY_LABEL,
+                'impactMin' => $priorityAmount,
+                'impactMax' => $priorityAmount,
             ];
         }
+
+        $mode = is_string($variant['pricingMode'] ?? null) ? $variant['pricingMode'] : QuotePricingCatalog::MODE_RANGE;
 
         $min = $this->round($min);
         $max = $this->round($max);
@@ -122,10 +134,17 @@ class QuoteEstimateCalculator
             $max = $min + self::ROUNDING_STEP;
         }
 
+        // Rounding must never break the promise of a committed amount.
+        if ($mode !== QuotePricingCatalog::MODE_RANGE) {
+            $max = $min;
+        }
+
         return [
             'offerKey' => $offer['key'],
             'offerLabel' => $offer['label'],
             'contentQuestion' => $contentQuestionApplies,
+            'pricingMode' => $mode,
+            'disclaimer' => self::DISCLAIMERS[$mode],
             'variantKey' => $variant['key'],
             'variantLabel' => $variant['label'],
             'minimumAmount' => $min,

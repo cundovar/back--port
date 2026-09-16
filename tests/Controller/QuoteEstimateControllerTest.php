@@ -52,13 +52,28 @@ final class QuoteEstimateControllerTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
 
-        // 600-1100 + 150-350
-        self::assertSame(750, $body['minimumAmount']);
-        self::assertSame(1450, $body['maximumAmount']);
+        // 900 (pack ferme) + 250 (prise de rendez-vous)
+        self::assertSame(1150, $body['minimumAmount']);
+        self::assertSame(1150, $body['maximumAmount']);
+        self::assertSame('fixed', $body['pricingMode']);
+        self::assertSame('Prix ferme pour le périmètre décrit ci-dessus.', $body['disclaimer']);
         self::assertNotEmpty($body['includes']);
         self::assertSame(['Prise de rendez-vous en ligne'], array_column($body['selectedOptions'], 'label'));
         self::assertSame(7, $body['pricingVersion']);
         self::assertArrayNotHasKey('id', $body);
+    }
+
+    public function testPreviewOfARangeOfferExposesBothBoundsAndTheIndicativeWording(): void
+    {
+        $answers = ['offerKey' => 'refonte', 'variantKey' => 'refonte-ciblee', 'optionKeys' => []] + self::PROJECT_ANSWERS;
+
+        $response = $this->controller()->preview($this->jsonRequest($answers));
+        $body = json_decode((string) $response->getContent(), true);
+
+        self::assertSame('range', $body['pricingMode']);
+        self::assertSame(400, $body['minimumAmount']);
+        self::assertSame(900, $body['maximumAmount']);
+        self::assertStringContainsString('indicative', $body['disclaimer']);
     }
 
     public function testPreviewRejectsAnUnknownVariantWith422(): void
@@ -101,13 +116,39 @@ final class QuoteEstimateControllerTest extends TestCase
         self::assertSame(201, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
 
-        self::assertSame(750, $body['minimumAmount']);
-        self::assertSame(1450, $body['maximumAmount']);
+        self::assertSame(1150, $body['minimumAmount']);
+        self::assertSame(1150, $body['maximumAmount']);
         self::assertInstanceOf(QuoteEstimate::class, $persisted);
-        self::assertSame(750, $persisted->getMinimumAmount());
+        self::assertSame(1150, $persisted->getMinimumAmount());
         self::assertSame(7, $persisted->getPricingVersion());
         self::assertSame('site-vitrine', $persisted->getOfferKey());
         self::assertSame('wordpress-vitrine', $persisted->getVariantKey());
+    }
+
+    public function testTheFrozenAnswersCarryToolsModeAndCatalogContent(): void
+    {
+        $payload = self::PROJECT_ANSWERS + self::CONTACT;
+        $payload['toolKeys'] = ['tableur', 'outil-fantome'];
+
+        $persisted = null;
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects(self::once())->method('persist')->willReturnCallback(
+            static function (QuoteEstimate $estimate) use (&$persisted): void {
+                $persisted = $estimate;
+            },
+        );
+        $em->expects(self::once())->method('flush');
+
+        $this->controller()->create($this->jsonRequest($payload), $em);
+
+        $answers = $persisted->getAnswers();
+        self::assertSame(['tableur'], $answers['toolKeys']);
+        self::assertSame(['Excel ou Google Sheets'], $answers['toolLabels']);
+        self::assertSame('fixed', $answers['pricingMode']);
+        self::assertSame('Prix ferme pour le périmètre décrit ci-dessus.', $answers['disclaimer']);
+        // Deliverables are frozen from the catalog, never from any AI text.
+        self::assertContains('Interface WordPress pour modifier vos textes vous-même', $answers['includes']);
+        self::assertSame(['Prise de rendez-vous en ligne'], array_column($answers['selectedOptions'], 'label'));
     }
 
     public function testFinalSubmissionRequiresConsent(): void
@@ -201,7 +242,7 @@ final class QuoteEstimateControllerTest extends TestCase
         $body = json_decode((string) $response->getContent(), true);
         self::assertSame(201, $response->getStatusCode());
         self::assertSame('fallback', $body['aiSource']);
-        self::assertSame(750, $body['minimumAmount']);
+        self::assertSame(1150, $body['minimumAmount']);
     }
 
     public function testRateLimitedSubmissionSkipsAiAndPersistence(): void
@@ -249,6 +290,7 @@ final class QuoteEstimateControllerTest extends TestCase
     ): QuoteEstimateController {
         return new QuoteEstimateController(
             new QuoteEstimateCalculator(new QuotePricingCatalog()),
+            new QuotePricingCatalog(),
             $analysis ?? $this->analysisReturning('deepseek'),
             $notification ?? $this->createStub(QuoteEstimateNotificationService::class),
             $this->pricingRepository(),

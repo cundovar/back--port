@@ -32,14 +32,55 @@ final class QuoteEstimateCalculatorTest extends TestCase
         ];
     }
 
-    public function testVariantAloneReturnsItsCatalogRange(): void
+    public function testFixedVariantAloneReturnsOneCommittedAmount(): void
     {
         $result = $this->calculator->calculate($this->catalog, $this->answers());
 
-        self::assertSame(350, $result['minimumAmount']);
-        self::assertSame(650, $result['maximumAmount']);
+        self::assertSame('fixed', $result['pricingMode']);
+        self::assertSame(550, $result['minimumAmount']);
+        self::assertSame(550, $result['maximumAmount']);
+        self::assertSame('Prix ferme pour le périmètre décrit ci-dessus.', $result['disclaimer']);
         self::assertNotEmpty($result['includes']);
         self::assertSame([], $result['selectedOptions']);
+    }
+
+    public function testRangeVariantKeepsBothBoundsAndTheIndicativeWording(): void
+    {
+        $result = $this->calculator->calculate($this->catalog, $this->answers([
+            'offerKey' => 'refonte',
+            'variantKey' => 'refonte-ciblee',
+        ]));
+
+        self::assertSame('range', $result['pricingMode']);
+        self::assertSame(400, $result['minimumAmount']);
+        self::assertSame(900, $result['maximumAmount']);
+        self::assertStringContainsString('indicative', $result['disclaimer']);
+    }
+
+    public function testFromVariantCommitsToItsStartingAmount(): void
+    {
+        $result = $this->calculator->calculate($this->catalog, $this->answers([
+            'variantKey' => 'wordpress-avance',
+        ]));
+
+        self::assertSame('from', $result['pricingMode']);
+        self::assertSame(1400, $result['minimumAmount']);
+        self::assertSame(1400, $result['maximumAmount']);
+        self::assertStringContainsString('Prix de départ', $result['disclaimer']);
+    }
+
+    public function testACommittedPackStaysCommittedWithOptionsContentAndPriority(): void
+    {
+        $result = $this->calculator->calculate($this->catalog, $this->answers([
+            'variantKey' => 'wordpress-vitrine',
+            'optionKeys' => ['prise-rdv', 'blog'],
+            'contentReadiness' => 'a-rediger',
+            'deadline' => 'prioritaire',
+        ]));
+
+        // 900 + 250 + 200 + 300 (rédaction) + 200 (urgence) — et toujours un seul montant.
+        self::assertSame(1850, $result['minimumAmount']);
+        self::assertSame($result['minimumAmount'], $result['maximumAmount']);
     }
 
     public function testOptionsAreAddedAndListedAsBenefits(): void
@@ -49,9 +90,9 @@ final class QuoteEstimateCalculatorTest extends TestCase
             'optionKeys' => ['prise-rdv', 'blog'],
         ]));
 
-        // 600-1100 + 150-350 + 120-300
-        self::assertSame(850, $result['minimumAmount']);
-        self::assertSame(1750, $result['maximumAmount']);
+        // 900 + 250 + 200, prix ferme
+        self::assertSame(1350, $result['minimumAmount']);
+        self::assertSame(1350, $result['maximumAmount']);
         self::assertSame(
             ['Prise de rendez-vous en ligne', 'Espace actualités ou blog'],
             array_column($result['selectedOptions'], 'label'),
@@ -63,8 +104,8 @@ final class QuoteEstimateCalculatorTest extends TestCase
         $withContent = $this->calculator->calculate($this->catalog, $this->answers(['contentReadiness' => 'pret']));
         $withoutContent = $this->calculator->calculate($this->catalog, $this->answers(['contentReadiness' => 'a-rediger']));
 
-        self::assertSame($withContent['minimumAmount'] + 150, $withoutContent['minimumAmount']);
-        self::assertSame($withContent['maximumAmount'] + 400, $withoutContent['maximumAmount']);
+        self::assertSame($withContent['minimumAmount'] + 300, $withoutContent['minimumAmount']);
+        self::assertSame($withContent['maximumAmount'] + 300, $withoutContent['maximumAmount']);
     }
 
     public function testContentSupplementIsSkippedForOffersWithoutEditorialContent(): void
@@ -103,13 +144,28 @@ final class QuoteEstimateCalculatorTest extends TestCase
         self::assertSame($ready['maximumAmount'], $unknown['maximumAmount']);
     }
 
-    public function testPriorityDeadlineIncreasesTheRange(): void
+    public function testPriorityDeadlineAddsTheVariantFlatSupplement(): void
     {
         $normal = $this->calculator->calculate($this->catalog, $this->answers());
         $priority = $this->calculator->calculate($this->catalog, $this->answers(['deadline' => 'prioritaire']));
 
-        self::assertGreaterThan($normal['minimumAmount'], $priority['minimumAmount']);
+        // landing-page carries priorityAmount 150, applied identically to both bounds.
+        self::assertSame($normal['minimumAmount'] + 150, $priority['minimumAmount']);
+        self::assertSame($normal['maximumAmount'] + 150, $priority['maximumAmount']);
         self::assertSame('Délai prioritaire', end($priority['calculationDetail'])['label']);
+    }
+
+    public function testPrioritySupplementIsTakenFromTheSelectedVariant(): void
+    {
+        $small = $this->calculator->calculate($this->catalog, $this->answers(['deadline' => 'prioritaire']));
+        $large = $this->calculator->calculate($this->catalog, $this->answers([
+            'offerKey' => 'outil-metier',
+            'variantKey' => 'outil-mvp',
+            'deadline' => 'prioritaire',
+        ]));
+
+        self::assertSame(150, end($small['calculationDetail'])['impactMin']);
+        self::assertSame(500, end($large['calculationDetail'])['impactMin']);
     }
 
     public function testProjectStageDoesNotChangeThePrice(): void
@@ -125,12 +181,12 @@ final class QuoteEstimateCalculatorTest extends TestCase
     {
         $catalog = $this->catalog;
         $catalog['offers'][0]['variants'][0]['minimumAmount'] = 1000;
-        $catalog['offers'][0]['variants'][0]['maximumAmount'] = 1500;
+        $catalog['offers'][0]['variants'][0]['maximumAmount'] = 1000;
 
         $result = $this->calculator->calculate($catalog, $this->answers());
 
         self::assertSame(1000, $result['minimumAmount']);
-        self::assertSame(1500, $result['maximumAmount']);
+        self::assertSame(1000, $result['maximumAmount']);
     }
 
     public function testUnknownOfferIsRejected(): void

@@ -38,13 +38,13 @@ final class QuotePricingCatalogTest extends TestCase
         $catalog = QuotePricingCatalog::defaultCatalog();
 
         $expected = [
-            'landing-page' => [350, 650],
-            'wordpress-vitrine' => [600, 1100],
-            'wordpress-avance' => [1100, 2200],
-            'automatisation-ciblee' => [300, 600],
-            'automatisation-multi-outils' => [700, 1500],
-            'assistant-initial' => [500, 900],
-            'assistant-connecte' => [1000, 2000],
+            'landing-page' => [550, 550],
+            'wordpress-vitrine' => [900, 900],
+            'wordpress-avance' => [1400, 1400],
+            'automatisation-ciblee' => [500, 500],
+            'automatisation-multi-outils' => [900, 900],
+            'assistant-initial' => [750, 750],
+            'assistant-connecte' => [1300, 1300],
             'refonte-ciblee' => [400, 900],
             'outil-mvp' => [1200, 2800],
         ];
@@ -94,10 +94,97 @@ final class QuotePricingCatalogTest extends TestCase
         self::assertNotEmpty($this->catalog->validate(['offers' => []]));
     }
 
-    public function testOutOfBoundsPriorityMultiplierIsRejected(): void
+    public function testEveryDefaultVariantDeclaresAModeAndAPrioritySupplement(): void
+    {
+        foreach (QuotePricingCatalog::defaultCatalog()['offers'] as $offer) {
+            foreach ($offer['variants'] as $variant) {
+                self::assertContains($variant['pricingMode'], QuotePricingCatalog::PRICING_MODES, $variant['key']);
+                self::assertIsInt($variant['priorityAmount'], $variant['key']);
+            }
+        }
+    }
+
+    public function testAnUnknownPricingModeIsRejected(): void
     {
         $catalog = QuotePricingCatalog::defaultCatalog();
-        $catalog['adjustments']['priorityDelay']['multiplier'] = 12;
+        $catalog['offers'][0]['variants'][0]['pricingMode'] = 'negociable';
+
+        self::assertContains(
+            'offers.0.variants.0.pricingMode',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testACommittedVariantCannotCarryTwoDifferentBounds(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['maximumAmount'] = 2000;
+
+        self::assertContains(
+            'offers.0.variants.0.maximumAmount',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testAnOfferWithACommittedVariantRefusesARangedOption(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['options'][0]['maximumAmount'] = 900;
+
+        // A fixed pack plus a 250-900 option would silently become a range again.
+        self::assertContains(
+            'offers.0.options.0.maximumAmount',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testAnOfferPricedAsARangeStillAcceptsRangedOptions(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $refonte = null;
+        foreach ($catalog['offers'] as $index => $offer) {
+            if ($offer['key'] === 'refonte') {
+                $refonte = $index;
+            }
+        }
+
+        self::assertNotNull($refonte);
+        self::assertSame([], $this->catalog->validate($catalog));
+        self::assertNotSame(
+            $catalog['offers'][$refonte]['options'][0]['minimumAmount'],
+            $catalog['offers'][$refonte]['options'][0]['maximumAmount'],
+        );
+    }
+
+    public function testAMissingPrioritySupplementIsRejected(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        unset($catalog['offers'][0]['variants'][0]['priorityAmount']);
+
+        self::assertContains(
+            'offers.0.variants.0.priorityAmount',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testToolsAreListedWithoutAnyAmount(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        self::assertNotEmpty($catalog['tools']);
+        self::assertSame([], $this->catalog->validate($catalog));
+
+        $catalog['tools'][0]['minimumAmount'] = 100;
+
+        self::assertContains(
+            'tools.0.minimumAmount',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testDuplicateToolKeysAreRejected(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['tools'][] = $catalog['tools'][0];
 
         self::assertNotEmpty($this->catalog->validate($catalog));
     }
@@ -140,13 +227,12 @@ final class QuotePricingCatalogTest extends TestCase
     public function testAnAdjustmentWithoutALabelIsRejected(): void
     {
         $catalog = QuotePricingCatalog::defaultCatalog();
-        unset($catalog['adjustments']['priorityDelay']['label']);
         $catalog['adjustments']['contentWriting']['label'] = '   ';
 
-        $paths = array_column($this->catalog->validate($catalog), 'path');
-
-        self::assertContains('adjustments.priorityDelay.label', $paths);
-        self::assertContains('adjustments.contentWriting.label', $paths);
+        self::assertContains(
+            'adjustments.contentWriting.label',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
     }
 
     public function testContentQuestionMustStayABoolean(): void

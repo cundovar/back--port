@@ -58,7 +58,9 @@ final class QuotePricingControllerTest extends TestCase
     public function testValidCatalogIsSavedAndVersionBumped(): void
     {
         $catalog = QuotePricingCatalog::defaultCatalog();
+        // A fixed pack moves both bounds together.
         $catalog['offers'][0]['variants'][0]['minimumAmount'] = 400;
+        $catalog['offers'][0]['variants'][0]['maximumAmount'] = 400;
 
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::once())->method('flush');
@@ -77,6 +79,7 @@ final class QuotePricingControllerTest extends TestCase
     public function testInvalidCatalogReturns422AndLeavesActiveGridUntouched(): void
     {
         $catalog = QuotePricingCatalog::defaultCatalog();
+        // Minimum above maximum: refused, and the active grid must stay untouched.
         $catalog['offers'][0]['variants'][0]['minimumAmount'] = 9999;
 
         $em = $this->createMock(EntityManagerInterface::class);
@@ -93,8 +96,29 @@ final class QuotePricingControllerTest extends TestCase
         self::assertSame('invalid_catalog', $body['error']);
         self::assertNotEmpty($body['errors']);
 
-        self::assertSame(350, $this->configuration->getCatalog()['offers'][0]['variants'][0]['minimumAmount']);
+        self::assertSame(550, $this->configuration->getCatalog()['offers'][0]['variants'][0]['minimumAmount']);
         self::assertSame(1, $this->configuration->getVersion());
+    }
+
+    public function testTurningAFixedPackIntoARangeIsRefused(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['maximumAmount'] = 1800;
+
+        $em = $this->createMock(EntityManagerInterface::class);
+        $em->expects(self::never())->method('flush');
+
+        $response = $this->controller()->updateCatalog(
+            $this->jsonRequest(['catalog' => $catalog]),
+            $em,
+            $this->allowingGuard(),
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertContains(
+            'offers.0.variants.0.maximumAmount',
+            array_column(json_decode((string) $response->getContent(), true)['errors'], 'path'),
+        );
     }
 
     public function testDeeplyMalformedCatalogReturns422NotAServerError(): void

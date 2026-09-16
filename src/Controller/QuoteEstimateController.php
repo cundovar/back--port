@@ -12,6 +12,7 @@ use App\Security\AdminTokenGuard;
 use App\Service\DeepSeekQuoteAnalysisService;
 use App\Service\QuoteEstimateCalculator;
 use App\Service\QuoteEstimateNotificationService;
+use App\Service\QuotePricingCatalog;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -32,8 +33,6 @@ final class QuoteEstimateController
     private const MAX_PHONE_LENGTH = 40;
     private const MAX_OPTIONS = 12;
 
-    private const DISCLAIMER = 'Estimation indicative, non contractuelle.';
-
     private const ADMIN_STATUSES = [
         QuoteEstimate::STATUS_NEW,
         QuoteEstimate::STATUS_REVIEWED,
@@ -43,6 +42,7 @@ final class QuoteEstimateController
 
     public function __construct(
         private readonly QuoteEstimateCalculator $calculator,
+        private readonly QuotePricingCatalog $catalogService,
         private readonly DeepSeekQuoteAnalysisService $analysisService,
         private readonly QuoteEstimateNotificationService $notificationService,
         private readonly QuotePricingConfigurationRepository $pricingRepository,
@@ -106,10 +106,19 @@ final class QuoteEstimateController
         $estimate->setOfferKey($answers['offerKey']);
         $estimate->setVariantKey($answers['variantKey']);
         $estimate->setPricingVersion($configuration->getVersion());
+        $tools = $this->catalogService->resolveTools($configuration->getCatalog(), $payload['toolKeys'] ?? []);
+
+        // Everything readable later is frozen here, from the catalog used that day:
+        // a later price edit must not rewrite what the client was shown.
         $estimate->setAnswers([
             'offerLabel' => $calculation['offerLabel'],
             'variantLabel' => $calculation['variantLabel'],
             'selectedOptions' => $calculation['selectedOptions'],
+            'includes' => $calculation['includes'],
+            'pricingMode' => $calculation['pricingMode'],
+            'disclaimer' => $calculation['disclaimer'],
+            'toolKeys' => $tools['keys'],
+            'toolLabels' => $tools['labels'],
             'projectStage' => $answers['projectStage'],
             'contentReadiness' => $answers['contentReadiness'],
             'deadline' => $answers['deadline'],
@@ -337,7 +346,9 @@ final class QuoteEstimateController
             'selectedOptions' => $calculation['selectedOptions'],
             'calculationDetail' => $calculation['calculationDetail'],
             'pricingVersion' => $pricingVersion,
-            'disclaimer' => self::DISCLAIMER,
+            'pricingMode' => $calculation['pricingMode'],
+            // The wording follows the commercial mode of the variant, never a constant.
+            'disclaimer' => $calculation['disclaimer'],
         ];
     }
 

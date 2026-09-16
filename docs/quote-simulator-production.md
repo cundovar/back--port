@@ -7,12 +7,45 @@ La grille tarifaire est la seule source des montants. Elle est stockée en base 
 `GET /api/quote-pricing`. Le frontend Vue ne contient aucun montant : il affiche ce que
 le catalogue renvoie.
 
-Deux endpoints publics distincts :
+Trois endpoints publics distincts :
 
 | Endpoint | Rôle | Écrit en base | Appelle DeepSeek | Envoie un email |
 | --- | --- | --- | --- | --- |
-| `POST /api/quote-estimates/preview` | affiche la fourchette avant les coordonnées | non | non | non |
+| `POST /api/quote-recommendations` | propose deux périmètres à partir du besoin décrit | non | oui | non |
+| `POST /api/quote-estimates/preview` | affiche le prix avant les coordonnées | non | non | non |
 | `POST /api/quote-estimates` | demande finale avec coordonnées | oui | oui | oui |
+
+## Ce que l'IA a le droit de faire
+
+DeepSeek ne renvoie que des **clés du catalogue** et un texte court : `summary` et une
+justification par clé. Toute clé absente de l'offre active est supprimée côté serveur,
+et une justification ne survit que si elle est rattachée à une clé conservée.
+
+Les titres, les inclusions, les options et les montants affichés viennent **tous** du
+catalogue. Conséquence directe : le modèle ne peut ni inventer un livrable, ni annoncer
+un prix. Les deux propositions sont chiffrées par `QuoteEstimateCalculator`, le même
+calculateur que le reste du parcours, et fusionnées si elles sont identiques.
+
+Garde-fous de l'appel : description d'au moins **30 caractères** (sinon aucun appel
+payant), quota dédié de **10 par heure et par IP**, délai maximal de **5 secondes**.
+Panne, quota atteint ou réponse inexploitable laissent le choix manuel disponible :
+l'écran de sélection est affiché avant l'appel et ne dépend jamais de sa réponse.
+
+## Modes de prix
+
+Chaque variante porte un `pricingMode` et un supplément d'urgence fixe (`priorityAmount`) :
+
+| Mode | Affichage | Mention |
+| --- | --- | --- |
+| `fixed` | un montant | « Prix ferme pour le périmètre décrit ci-dessus. » |
+| `from` | « à partir de X » | « Prix de départ pour le périmètre décrit… » |
+| `range` | deux bornes | « Estimation indicative, non contractuelle… » |
+
+Une offre qui contient au moins une variante `fixed` ou `from` n'accepte que des options
+à montant unique, et le supplément de rédaction doit l'être aussi : sinon un pack ferme
+redeviendrait une fourchette dès la première option cochée. La validation le refuse.
+
+Le délai prioritaire est un **montant fixe par variante**, plus un multiplicateur global.
 
 Les deux recalculent le montant côté serveur à partir du catalogue actif : un montant
 envoyé par le client est toujours ignoré.
@@ -36,6 +69,7 @@ DEEPSEEK_API_KEY=replace_with_a_rotated_private_key
 DEEPSEEK_MODEL=deepseek-chat
 DEEPSEEK_QUOTE_MAX_TOKENS=800
 DEEPSEEK_QUOTE_TEMPERATURE=0.3
+DEEPSEEK_RECOMMENDATION_TIMEOUT=5
 ```
 
 La clé DeepSeek ne doit jamais être copiée dans le frontend Vue, un fichier `dist`, un
@@ -77,6 +111,7 @@ Migrations concernées :
 | `Version20260915143000` | met à jour le JSON de la table `content` |
 | `Version20260915220000` | crée `portfolio_quote_pricing`, insère la grille initiale, ajoute `pricing_version`, `offer_key`, `variant_key` sur `portfolio_quote_estimates` |
 | `Version20260915233000` | ajoute le drapeau `contentQuestion` aux offres de la grille déjà stockée (aucune modification de schéma) |
+| `Version20260916090000` | ajoute `pricingMode`, `priorityAmount` et la liste des outils à la grille stockée ; retire le multiplicateur d'urgence (aucune modification de schéma) |
 
 Aucune de ces migrations ne lit ni ne modifie une table `massage_*`.
 
@@ -84,8 +119,13 @@ Aucune de ces migrations ne lit ni ne modifie une table `massage_*`.
 
 ### API
 
-1. `GET /api/quote-pricing` renvoie le catalogue et une `version`.
-2. `POST /api/quote-estimates/preview` renvoie une fourchette **sans** créer de ligne en base.
+1. `GET /api/quote-pricing` renvoie le catalogue, ses outils et une `version`.
+2. `POST /api/quote-recommendations` avec une description de moins de 30 caractères
+   renvoie `200`, aucune proposition, `source: "description_too_short"`, et **aucun**
+   appel DeepSeek n'est facturé.
+3. Une clé de variante ou d'option inventée par le modèle n'apparaît dans aucune réponse.
+4. Le onzième appel de recommandation dans l'heure renvoie `429` avant tout appel payant.
+5. `POST /api/quote-estimates/preview` renvoie un prix **sans** créer de ligne en base.
 3. Un montant falsifié dans le corps de la requête finale est ignoré : la réponse contient
    le montant recalculé côté serveur.
 4. `POST /api/quote-estimates` renvoie `201`, avec `aiSource` valant `deepseek` ou `fallback`.
@@ -95,7 +135,10 @@ Aucune de ces migrations ne lit ni ne modifie une table `massage_*`.
 
 ### Parcours public
 
-1. La fourchette, les inclusions et les options s'affichent **avant** tout champ de coordonnées.
+0. L'écran « Votre solution » est utilisable **immédiatement**, avant la réponse de l'IA :
+   formules et options sélectionnables, boutons actifs. Couper le réseau à cet instant ne
+   doit rien bloquer.
+1. Le prix, les inclusions et les options s'affichent **avant** tout champ de coordonnées.
 2. Le prospect qui ne laisse pas ses coordonnées garde son estimation à l'écran.
 3. Aucun écran ne demande une complexité ou une notion technique (BDD, API).
 4. La question sur les textes et images n'apparaît que pour le site vitrine et la
@@ -111,4 +154,7 @@ Aucune de ces migrations ne lit ni ne modifie une table `massage_*`.
    conservé et rien n'est enregistré.
 4. `/admin/quote-estimates` affiche l'offre retenue, le détail du calcul, la synthèse et
    la version de grille utilisée.
-5. Une estimation reçue avant une modification de grille conserve son montant d'origine.
+5. Une estimation reçue avant une modification de grille conserve son montant, son
+   périmètre et sa mention d'origine : tout est figé dans `answers` au moment de l'envoi.
+6. L'écran admin distingue la **solution retenue par le client** (facturable) de la
+   **qualification IA** (jamais un engagement).

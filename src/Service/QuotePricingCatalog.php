@@ -6,6 +6,15 @@ namespace App\Service;
 
 class QuotePricingCatalog
 {
+    public const MODE_FIXED = 'fixed';
+    public const MODE_FROM = 'from';
+    public const MODE_RANGE = 'range';
+
+    public const PRICING_MODES = [self::MODE_FIXED, self::MODE_FROM, self::MODE_RANGE];
+
+    /** Modes that commit to one amount, and therefore forbid any range downstream. */
+    private const SINGLE_AMOUNT_MODES = [self::MODE_FIXED, self::MODE_FROM];
+
     /**
      * Initial commercial grid. Amounts are editable from the backoffice once
      * deployed: this is only the seed written by the migration.
@@ -13,10 +22,27 @@ class QuotePricingCatalog
      * 'contentQuestion' says whether "vos textes et images" makes sense for the
      * offer. An automation or an assistant has no editorial content to write, so
      * the question is neither asked nor priced there.
+     *
+     * 'pricingMode' is the commercial contract of a variant:
+     *   - fixed : one amount, committed for the scope listed in 'includes'
+     *   - from  : one amount as a starting point, the final scope is agreed later
+     *   - range : two bounds, for work whose scope cannot honestly be committed
+     * A fixed or from variant must keep a single amount end to end, so the offer
+     * that carries it only accepts single-amount options (see validate()).
      */
     public static function defaultCatalog(): array
     {
         return [
+            'tools' => [
+                ['key' => 'tableur', 'label' => 'Excel ou Google Sheets'],
+                ['key' => 'email', 'label' => 'Gmail ou Outlook'],
+                ['key' => 'wordpress', 'label' => 'WordPress'],
+                ['key' => 'crm', 'label' => 'Un CRM ou un logiciel de gestion'],
+                ['key' => 'agenda', 'label' => 'Un agenda en ligne'],
+                ['key' => 'facturation', 'label' => 'Un outil de facturation'],
+                ['key' => 'reseaux-sociaux', 'label' => 'Des réseaux sociaux'],
+                ['key' => 'aucun', 'label' => 'Aucun outil particulier'],
+            ],
             'offers' => [
                 [
                     'key' => 'site-vitrine',
@@ -27,8 +53,10 @@ class QuotePricingCatalog
                         [
                             'key' => 'landing-page',
                             'label' => 'Une page unique, claire et rapide',
-                            'minimumAmount' => 350,
-                            'maximumAmount' => 650,
+                            'pricingMode' => 'fixed',
+                            'minimumAmount' => 550,
+                            'maximumAmount' => 550,
+                            'priorityAmount' => 150,
                             'includes' => [
                                 'Une page complète avec vos services et vos preuves',
                                 'Un formulaire de contact relié à votre email',
@@ -38,8 +66,10 @@ class QuotePricingCatalog
                         [
                             'key' => 'wordpress-vitrine',
                             'label' => 'Un site de plusieurs pages que vous pouvez modifier',
-                            'minimumAmount' => 600,
-                            'maximumAmount' => 1100,
+                            'pricingMode' => 'fixed',
+                            'minimumAmount' => 900,
+                            'maximumAmount' => 900,
+                            'priorityAmount' => 200,
                             'includes' => [
                                 'Jusqu’à 5 pages (accueil, services, à propos, contact…)',
                                 'Interface WordPress pour modifier vos textes vous-même',
@@ -49,8 +79,10 @@ class QuotePricingCatalog
                         [
                             'key' => 'wordpress-avance',
                             'label' => 'Un site plus complet, avec des fonctions métier',
-                            'minimumAmount' => 1100,
-                            'maximumAmount' => 2200,
+                            'pricingMode' => 'from',
+                            'minimumAmount' => 1400,
+                            'maximumAmount' => 1400,
+                            'priorityAmount' => 350,
                             'includes' => [
                                 'Site multi-pages avec une structure sur mesure',
                                 'Mise en avant de vos offres et de vos contenus',
@@ -59,11 +91,11 @@ class QuotePricingCatalog
                         ],
                     ],
                     'options' => [
-                        ['key' => 'prise-rdv', 'label' => 'Prise de rendez-vous en ligne', 'minimumAmount' => 150, 'maximumAmount' => 350],
-                        ['key' => 'blog', 'label' => 'Espace actualités ou blog', 'minimumAmount' => 120, 'maximumAmount' => 300],
-                        ['key' => 'multilingue', 'label' => 'Site en deux langues', 'minimumAmount' => 250, 'maximumAmount' => 600],
-                        ['key' => 'seo-local', 'label' => 'Être trouvable sur votre ville', 'minimumAmount' => 150, 'maximumAmount' => 400],
-                        ['key' => 'paiement-en-ligne', 'label' => 'Encaisser un paiement en ligne', 'minimumAmount' => 300, 'maximumAmount' => 700],
+                        ['key' => 'prise-rdv', 'label' => 'Prise de rendez-vous en ligne', 'minimumAmount' => 250, 'maximumAmount' => 250],
+                        ['key' => 'blog', 'label' => 'Espace actualités ou blog', 'minimumAmount' => 200, 'maximumAmount' => 200],
+                        ['key' => 'multilingue', 'label' => 'Site en deux langues', 'minimumAmount' => 400, 'maximumAmount' => 400],
+                        ['key' => 'seo-local', 'label' => 'Être trouvable sur votre ville', 'minimumAmount' => 250, 'maximumAmount' => 250],
+                        ['key' => 'paiement-en-ligne', 'label' => 'Encaisser un paiement en ligne', 'minimumAmount' => 450, 'maximumAmount' => 450],
                     ],
                 ],
                 [
@@ -75,8 +107,10 @@ class QuotePricingCatalog
                         [
                             'key' => 'automatisation-ciblee',
                             'label' => 'Une tâche précise à automatiser',
-                            'minimumAmount' => 300,
-                            'maximumAmount' => 600,
+                            'pricingMode' => 'fixed',
+                            'minimumAmount' => 500,
+                            'maximumAmount' => 500,
+                            'priorityAmount' => 150,
                             'includes' => [
                                 'Une automatisation prête à l’emploi',
                                 'Un historique de ce qui a été fait',
@@ -85,20 +119,22 @@ class QuotePricingCatalog
                         ],
                         [
                             'key' => 'automatisation-multi-outils',
-                            'label' => 'Plusieurs outils à faire communiquer',
-                            'minimumAmount' => 700,
-                            'maximumAmount' => 1500,
+                            'label' => 'Relier plusieurs outils entre eux',
+                            'pricingMode' => 'from',
+                            'minimumAmount' => 900,
+                            'maximumAmount' => 900,
+                            'priorityAmount' => 250,
                             'includes' => [
-                                'Les informations circulent entre vos outils',
-                                'Un tableau de suivi simple',
-                                'Des alertes en cas d’anomalie',
+                                'Vos outils synchronisés entre eux',
+                                'Des règles de déclenchement adaptées à votre activité',
+                                'Une alerte en cas d’échec',
                             ],
                         ],
                     ],
                     'options' => [
-                        ['key' => 'relances-auto', 'label' => 'Relances automatiques par email', 'minimumAmount' => 120, 'maximumAmount' => 300],
-                        ['key' => 'rapport-hebdo', 'label' => 'Rapport récapitulatif chaque semaine', 'minimumAmount' => 100, 'maximumAmount' => 250],
-                        ['key' => 'import-export', 'label' => 'Reprise de vos fichiers existants', 'minimumAmount' => 150, 'maximumAmount' => 400],
+                        ['key' => 'relances-auto', 'label' => 'Relances automatiques par email', 'minimumAmount' => 200, 'maximumAmount' => 200],
+                        ['key' => 'rapport-hebdo', 'label' => 'Rapport récapitulatif chaque semaine', 'minimumAmount' => 150, 'maximumAmount' => 150],
+                        ['key' => 'import-export', 'label' => 'Reprise de vos fichiers existants', 'minimumAmount' => 250, 'maximumAmount' => 250],
                     ],
                 ],
                 [
@@ -109,31 +145,35 @@ class QuotePricingCatalog
                     'variants' => [
                         [
                             'key' => 'assistant-initial',
-                            'label' => 'Un premier assistant, sur un usage précis',
-                            'minimumAmount' => 500,
-                            'maximumAmount' => 900,
+                            'label' => 'Un assistant sur vos propres documents',
+                            'pricingMode' => 'fixed',
+                            'minimumAmount' => 750,
+                            'maximumAmount' => 750,
+                            'priorityAmount' => 200,
                             'includes' => [
-                                'Un assistant testable sur votre cas réel',
-                                'Des règles de validation humaine',
-                                'Un écran pour surveiller les réponses',
+                                'Un assistant nourri par vos documents',
+                                'Des réponses vérifiables et traçables',
+                                'Une prise en main guidée',
                             ],
                         ],
                         [
                             'key' => 'assistant-connecte',
-                            'label' => 'Un assistant relié à vos données',
-                            'minimumAmount' => 1000,
-                            'maximumAmount' => 2000,
+                            'label' => 'Un assistant branché sur vos outils',
+                            'pricingMode' => 'from',
+                            'minimumAmount' => 1300,
+                            'maximumAmount' => 1300,
+                            'priorityAmount' => 350,
                             'includes' => [
-                                'L’assistant s’appuie sur vos documents ou votre catalogue',
-                                'Des réponses sourcées et vérifiables',
-                                'Un suivi de la qualité des réponses',
+                                'Un assistant relié à vos outils du quotidien',
+                                'Des actions préparées puis validées par vous',
+                                'Un suivi des échanges traités',
                             ],
                         ],
                     ],
                     'options' => [
-                        ['key' => 'canal-site', 'label' => 'Disponible directement sur votre site', 'minimumAmount' => 200, 'maximumAmount' => 450],
-                        ['key' => 'reponses-email', 'label' => 'Préparation de vos réponses email', 'minimumAmount' => 200, 'maximumAmount' => 500],
-                        ['key' => 'garde-fous', 'label' => 'Garde-fous renforcés et validation avant envoi', 'minimumAmount' => 150, 'maximumAmount' => 400],
+                        ['key' => 'canal-site', 'label' => 'Disponible directement sur votre site', 'minimumAmount' => 300, 'maximumAmount' => 300],
+                        ['key' => 'reponses-email', 'label' => 'Préparation de vos réponses email', 'minimumAmount' => 300, 'maximumAmount' => 300],
+                        ['key' => 'garde-fous', 'label' => 'Garde-fous renforcés et validation avant envoi', 'minimumAmount' => 250, 'maximumAmount' => 250],
                     ],
                 ],
                 [
@@ -144,13 +184,16 @@ class QuotePricingCatalog
                     'variants' => [
                         [
                             'key' => 'refonte-ciblee',
-                            'label' => 'Corriger et moderniser l’existant',
+                            'label' => 'Reprendre et fiabiliser l’existant',
+                            // Range on purpose: what a legacy site hides is unknown before opening it.
+                            'pricingMode' => 'range',
                             'minimumAmount' => 400,
                             'maximumAmount' => 900,
+                            'priorityAmount' => 200,
                             'includes' => [
-                                'Un diagnostic clair de ce qui pose problème',
-                                'Les corrections prioritaires appliquées',
-                                'Une interface plus simple à utiliser',
+                                'Un état des lieux de ce qui existe',
+                                'Une reprise de la structure et des contenus',
+                                'Un site plus rapide et plus lisible',
                             ],
                         ],
                     ],
@@ -169,10 +212,13 @@ class QuotePricingCatalog
                         [
                             'key' => 'outil-mvp',
                             'label' => 'Une première version utilisable',
+                            // Range on purpose: bespoke scope cannot be committed up front.
+                            'pricingMode' => 'range',
                             'minimumAmount' => 1200,
                             'maximumAmount' => 2800,
+                            'priorityAmount' => 500,
                             'includes' => [
-                                'Les écrans indispensables à votre activité',
+                                'Les écrans dont vous avez besoin au quotidien',
                                 'Des accès distincts selon les personnes',
                                 'Une mise en ligne et un accompagnement',
                             ],
@@ -186,14 +232,11 @@ class QuotePricingCatalog
                 ],
             ],
             'adjustments' => [
-                'priorityDelay' => [
-                    'label' => 'Délai prioritaire',
-                    'multiplier' => 1.25,
-                ],
+                // Single amount: a fixed pack plus a range supplement would be a range again.
                 'contentWriting' => [
                     'label' => 'Rédaction des contenus',
-                    'minimumAmount' => 150,
-                    'maximumAmount' => 400,
+                    'minimumAmount' => 300,
+                    'maximumAmount' => 300,
                 ],
             ],
         ];
@@ -206,9 +249,11 @@ class QuotePricingCatalog
     {
         $errors = [];
 
+        $errors = array_merge($errors, $this->validateTools($catalog['tools'] ?? []));
+
         $offers = $catalog['offers'] ?? null;
         if (!is_array($offers) || $offers === []) {
-            return [['path' => 'offers', 'message' => 'Au moins une offre est requise.']];
+            return array_merge($errors, [['path' => 'offers', 'message' => 'Au moins une offre est requise.']]);
         }
 
         $offerKeys = [];
@@ -246,6 +291,8 @@ class QuotePricingCatalog
                     if (isset($variant['includes']) && !$this->isStringList($variant['includes'])) {
                         $errors[] = ['path' => $variantPath . '.includes', 'message' => 'Liste de textes attendue.'];
                     }
+
+                    $errors = array_merge($errors, $this->validateVariantContract($variant, $variantPath));
                 }
             }
 
@@ -258,16 +305,20 @@ class QuotePricingCatalog
                 $errors[] = ['path' => $path . '.options', 'message' => 'Liste d’options attendue.'];
             } else {
                 $optionKeys = [];
+                $commits = $this->offerCommitsToASingleAmount($offer);
+
                 foreach ($options as $optionIndex => $option) {
-                    $errors = array_merge(
-                        $errors,
-                        $this->validatePricedItem($option, sprintf('%s.options.%d', $path, $optionIndex), $optionKeys),
-                    );
+                    $optionPath = sprintf('%s.options.%d', $path, $optionIndex);
+                    $errors = array_merge($errors, $this->validatePricedItem($option, $optionPath, $optionKeys));
+
+                    if ($commits) {
+                        $errors = array_merge($errors, $this->validateSingleAmount($option, $optionPath));
+                    }
                 }
             }
         }
 
-        $errors = array_merge($errors, $this->validateAdjustments($catalog['adjustments'] ?? []));
+        $errors = array_merge($errors, $this->validateAdjustments($catalog['adjustments'] ?? [], $catalog));
 
         return $errors;
     }
@@ -293,11 +344,47 @@ class QuotePricingCatalog
             }
         }
 
+        $tools = $catalog['tools'] ?? null;
+        $catalog['tools'] = is_array($tools) ? array_values($tools) : [];
+
         if (!isset($catalog['adjustments']) || !is_array($catalog['adjustments'])) {
             $catalog['adjustments'] = self::defaultCatalog()['adjustments'];
         }
 
         return $catalog;
+    }
+
+    /**
+     * Tools are context only: an unknown key is ignored rather than refused, so a
+     * stale browser tab never blocks the journey.
+     *
+     * @param mixed $submitted keys sent by the browser
+     *
+     * @return array{keys: list<string>, labels: list<string>}
+     */
+    public function resolveTools(array $catalog, mixed $submitted, int $max = 12): array
+    {
+        if (!is_array($submitted)) {
+            return ['keys' => [], 'labels' => []];
+        }
+
+        $known = [];
+        foreach ($catalog['tools'] ?? [] as $tool) {
+            if (is_array($tool) && isset($tool['key'], $tool['label']) && is_string($tool['key'])) {
+                $known[$tool['key']] = (string) $tool['label'];
+            }
+        }
+
+        $keys = [];
+        $labels = [];
+        foreach (array_slice($submitted, 0, $max) as $key) {
+            if (is_string($key) && isset($known[$key]) && !in_array($key, $keys, true)) {
+                $keys[] = $key;
+                $labels[] = $known[$key];
+            }
+        }
+
+        return ['keys' => $keys, 'labels' => $labels];
     }
 
     public function findOffer(array $catalog, string $offerKey): ?array
@@ -387,7 +474,7 @@ class QuotePricingCatalog
     /**
      * @return list<array{path: string, message: string}>
      */
-    private function validateAdjustments(mixed $adjustments): array
+    private function validateAdjustments(mixed $adjustments, array $catalog): array
     {
         if (!is_array($adjustments)) {
             return [['path' => 'adjustments', 'message' => 'Structure invalide.']];
@@ -395,29 +482,125 @@ class QuotePricingCatalog
 
         $errors = [];
 
-        $priority = $adjustments['priorityDelay'] ?? null;
-        if (!is_array($priority)) {
-            $errors[] = ['path' => 'adjustments.priorityDelay', 'message' => 'Ajustement requis.'];
-        } else {
-            $errors = array_merge($errors, $this->validateAdjustmentLabel($priority, 'adjustments.priorityDelay'));
-
-            $multiplier = $priority['multiplier'] ?? null;
-            if (!is_int($multiplier) && !is_float($multiplier)) {
-                $errors[] = ['path' => 'adjustments.priorityDelay.multiplier', 'message' => 'Multiplicateur numérique attendu.'];
-            } elseif ($multiplier < 1.0 || $multiplier > 3.0) {
-                $errors[] = ['path' => 'adjustments.priorityDelay.multiplier', 'message' => 'Multiplicateur attendu entre 1 et 3.'];
-            }
-        }
-
         $content = $adjustments['contentWriting'] ?? null;
         if (!is_array($content)) {
             $errors[] = ['path' => 'adjustments.contentWriting', 'message' => 'Ajustement requis.'];
         } else {
             $errors = array_merge($errors, $this->validateAdjustmentLabel($content, 'adjustments.contentWriting'));
             $errors = array_merge($errors, $this->validateRange($content, 'adjustments.contentWriting'));
+
+            // A committed pack plus a range supplement would silently become a range.
+            foreach ($catalog['offers'] ?? [] as $offer) {
+                if (is_array($offer) && $this->offerCommitsToASingleAmount($offer)) {
+                    $errors = array_merge($errors, $this->validateSingleAmount($content, 'adjustments.contentWriting'));
+                    break;
+                }
+            }
         }
 
         return $errors;
+    }
+
+    /**
+     * @return list<array{path: string, message: string}>
+     */
+    private function validateTools(mixed $tools): array
+    {
+        if (!is_array($tools)) {
+            return [['path' => 'tools', 'message' => 'Liste d’outils attendue.']];
+        }
+
+        $errors = [];
+        $seen = [];
+
+        foreach ($tools as $index => $tool) {
+            $path = sprintf('tools.%d', $index);
+
+            if (!is_array($tool)) {
+                $errors[] = ['path' => $path, 'message' => 'Outil invalide.'];
+                continue;
+            }
+
+            foreach (['key', 'label'] as $field) {
+                if (!isset($tool[$field]) || !is_string($tool[$field]) || trim($tool[$field]) === '') {
+                    $errors[] = ['path' => $path . '.' . $field, 'message' => 'Champ texte requis.'];
+                }
+            }
+
+            $key = is_string($tool['key'] ?? null) ? $tool['key'] : '';
+            if ($key !== '') {
+                if (in_array($key, $seen, true)) {
+                    $errors[] = ['path' => $path . '.key', 'message' => 'Clé d’outil en double.'];
+                }
+                $seen[] = $key;
+            }
+
+            // Tools feed the AI context only: a priced tool would charge an abstraction.
+            foreach (['minimumAmount', 'maximumAmount', 'amount'] as $forbidden) {
+                if (isset($tool[$forbidden])) {
+                    $errors[] = ['path' => $path . '.' . $forbidden, 'message' => 'Un outil ne porte aucun montant.'];
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @return list<array{path: string, message: string}>
+     */
+    private function validateVariantContract(mixed $variant, string $path): array
+    {
+        if (!is_array($variant)) {
+            return [];
+        }
+
+        $errors = [];
+
+        $mode = $variant['pricingMode'] ?? null;
+        if (!is_string($mode) || !in_array($mode, self::PRICING_MODES, true)) {
+            $errors[] = ['path' => $path . '.pricingMode', 'message' => 'Mode attendu : fixe, à partir de, ou fourchette.'];
+        } elseif (in_array($mode, self::SINGLE_AMOUNT_MODES, true)) {
+            $errors = array_merge($errors, $this->validateSingleAmount($variant, $path));
+        }
+
+        $priority = $variant['priorityAmount'] ?? null;
+        if (!is_int($priority) || $priority < 0) {
+            $errors[] = ['path' => $path . '.priorityAmount', 'message' => 'Supplément entier positif attendu (0 si aucun).'];
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @return list<array{path: string, message: string}>
+     */
+    private function validateSingleAmount(mixed $item, string $path): array
+    {
+        if (!is_array($item) || !is_int($item['minimumAmount'] ?? null) || !is_int($item['maximumAmount'] ?? null)) {
+            return [];
+        }
+
+        if ($item['minimumAmount'] !== $item['maximumAmount']) {
+            return [[
+                'path' => $path . '.maximumAmount',
+                'message' => 'Un prix ferme ou « à partir de » attend un montant unique : minimum et maximum doivent être égaux.',
+            ]];
+        }
+
+        return [];
+    }
+
+    /** True when at least one variant of the offer commits to a single amount. */
+    private function offerCommitsToASingleAmount(array $offer): bool
+    {
+        foreach ($offer['variants'] ?? [] as $variant) {
+            if (is_array($variant) && in_array($variant['pricingMode'] ?? null, self::SINGLE_AMOUNT_MODES, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -134,6 +134,18 @@ final class QuoteEstimateAdminControllerTest extends TestCase
         self::assertSame(3, $body['pricingVersion']);
     }
 
+    public function testDetailExposesTheFrozenScopeToolsAndMode(): void
+    {
+        $em = $this->entityManagerReturning($this->estimate());
+
+        $body = json_decode((string) $this->controller()->getEstimate(1, new Request(), $em, $this->allowingGuard())->getContent(), true);
+
+        self::assertSame('fixed', $body['answers']['pricingMode']);
+        self::assertSame(['WordPress'], $body['answers']['toolLabels']);
+        self::assertSame(['Jusqu’à 5 pages'], $body['answers']['includes']);
+        self::assertSame('Prise de rendez-vous en ligne', $body['answers']['selectedOptions'][0]['label']);
+    }
+
     public function testDetailReturns404WhenMissing(): void
     {
         $em = $this->entityManagerReturning(null);
@@ -195,6 +207,7 @@ final class QuoteEstimateAdminControllerTest extends TestCase
 
         return new QuoteEstimateController(
             new QuoteEstimateCalculator(new QuotePricingCatalog()),
+            new QuotePricingCatalog(),
             $this->createStub(DeepSeekQuoteAnalysisService::class),
             $this->createStub(QuoteEstimateNotificationService::class),
             $pricingRepository,
@@ -214,6 +227,11 @@ final class QuoteEstimateAdminControllerTest extends TestCase
             'offerLabel' => 'Présenter mon activité en ligne',
             'variantLabel' => 'Un site de plusieurs pages que vous pouvez modifier',
             'selectedOptions' => [['key' => 'prise-rdv', 'label' => 'Prise de rendez-vous en ligne']],
+            'includes' => ['Jusqu’à 5 pages'],
+            'pricingMode' => 'fixed',
+            'disclaimer' => 'Prix ferme pour le périmètre décrit ci-dessus.',
+            'toolKeys' => ['wordpress'],
+            'toolLabels' => ['WordPress'],
             'projectStage' => 'nouveau',
             'contentReadiness' => 'pret',
             'deadline' => 'normal',
