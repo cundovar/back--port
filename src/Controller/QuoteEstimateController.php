@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\QuoteEstimate;
 use App\Exception\QuoteEstimateValidationException;
+use App\Exception\QuoteFieldException;
 use App\Repository\QuoteEstimateRepository;
 use App\Repository\QuotePricingConfigurationRepository;
 use App\Security\AdminTokenGuard;
@@ -60,7 +61,12 @@ final class QuoteEstimateController
         $this->enforceLimit($this->quoteEstimatePreviewLimiter, $request);
 
         $payload = $this->parseJson($request);
-        $answers = $this->validateProjectAnswers($payload);
+
+        try {
+            $answers = $this->validateProjectAnswers($payload);
+        } catch (QuoteFieldException $exception) {
+            return $this->fieldError($exception);
+        }
 
         $configuration = $this->pricingRepository->getActive();
 
@@ -85,10 +91,16 @@ final class QuoteEstimateController
             return new JsonResponse(['ok' => true], 202);
         }
 
-        $this->enforceLimit($this->quoteEstimatePublicLimiter, $request);
+        // Validate before consuming the quota: a typo in an email must not cost
+        // the client one of the five submissions they get in an hour.
+        try {
+            $answers = $this->validateProjectAnswers($payload);
+            $contact = $this->validateContact($payload);
+        } catch (QuoteFieldException $exception) {
+            return $this->fieldError($exception);
+        }
 
-        $answers = $this->validateProjectAnswers($payload);
-        $contact = $this->validateContact($payload);
+        $this->enforceLimit($this->quoteEstimatePublicLimiter, $request);
 
         $configuration = $this->pricingRepository->getActive();
 
@@ -223,6 +235,19 @@ final class QuoteEstimateController
         return new JsonResponse(['ok' => true]);
     }
 
+    /**
+     * A refused field must stay actionable in the browser: the client sees which
+     * input to fix instead of a generic "l’envoi a échoué".
+     */
+    private function fieldError(QuoteFieldException $exception): JsonResponse
+    {
+        return new JsonResponse([
+            'error' => 'invalid_field',
+            'field' => $exception->getField(),
+            'message' => $exception->getMessage(),
+        ], 400);
+    }
+
     private function enforceLimit(RateLimiterFactoryInterface $limiter, Request $request): void
     {
         if (!$limiter->create($request->getClientIp())->consume()->isAccepted()) {
@@ -247,23 +272,23 @@ final class QuoteEstimateController
     {
         foreach (['offerKey', 'variantKey', 'projectStage', 'contentReadiness', 'deadline'] as $field) {
             if (!isset($payload[$field]) || !is_string($payload[$field]) || trim($payload[$field]) === '') {
-                throw new BadRequestHttpException(sprintf('Missing required field: %s', $field));
+                throw new QuoteFieldException($field, sprintf('Missing required field: %s', $field));
             }
         }
 
         $optionKeys = $payload['optionKeys'] ?? [];
         if (!is_array($optionKeys) || count($optionKeys) > self::MAX_OPTIONS) {
-            throw new BadRequestHttpException('Invalid optionKeys');
+            throw new QuoteFieldException('optionKeys', 'Invalid optionKeys');
         }
         foreach ($optionKeys as $optionKey) {
             if (!is_string($optionKey) || trim($optionKey) === '') {
-                throw new BadRequestHttpException('Invalid optionKeys');
+                throw new QuoteFieldException('optionKeys', 'Invalid optionKeys');
             }
         }
 
         $description = $payload['projectDescription'] ?? '';
         if (!is_string($description) || mb_strlen($description) > self::MAX_DESCRIPTION_LENGTH) {
-            throw new BadRequestHttpException('Invalid projectDescription');
+            throw new QuoteFieldException('projectDescription', 'Invalid projectDescription');
         }
 
         return [
@@ -284,23 +309,27 @@ final class QuoteEstimateController
     {
         foreach (['fullName', 'email'] as $field) {
             if (!isset($payload[$field]) || !is_string($payload[$field]) || trim($payload[$field]) === '') {
-                throw new BadRequestHttpException(sprintf('Missing required field: %s', $field));
+                throw new QuoteFieldException($field, sprintf('Missing required field: %s', $field));
             }
         }
 
         if (($payload['consent'] ?? null) !== true) {
-            throw new BadRequestHttpException('Consent is required');
+            throw new QuoteFieldException('consent', 'Consent is required');
         }
 
         $fullName = trim($payload['fullName']);
         $email = trim($payload['email']);
 
-        if (mb_strlen($fullName) > self::MAX_NAME_LENGTH || mb_strlen($email) > self::MAX_EMAIL_LENGTH) {
-            throw new BadRequestHttpException('Field too long');
+        if (mb_strlen($fullName) > self::MAX_NAME_LENGTH) {
+            throw new QuoteFieldException('fullName', 'Field too long: fullName');
+        }
+
+        if (mb_strlen($email) > self::MAX_EMAIL_LENGTH) {
+            throw new QuoteFieldException('email', 'Field too long: email');
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new BadRequestHttpException('Invalid email');
+            throw new QuoteFieldException('email', 'Invalid email');
         }
 
         return [
@@ -318,7 +347,7 @@ final class QuoteEstimateController
         }
 
         if (!is_string($payload[$field])) {
-            throw new BadRequestHttpException(sprintf('Invalid %s', $field));
+            throw new QuoteFieldException($field, sprintf('Invalid %s', $field));
         }
 
         $value = trim($payload[$field]);
@@ -327,7 +356,7 @@ final class QuoteEstimateController
         }
 
         if (mb_strlen($value) > $maxLength) {
-            throw new BadRequestHttpException(sprintf('Field too long: %s', $field));
+            throw new QuoteFieldException($field, sprintf('Field too long: %s', $field));
         }
 
         return $value;

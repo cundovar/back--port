@@ -92,8 +92,12 @@ final class QuoteEstimateControllerTest extends TestCase
         $payload = self::PROJECT_ANSWERS;
         unset($payload['deadline']);
 
-        $this->expectException(BadRequestHttpException::class);
-        $this->controller()->preview($this->jsonRequest($payload));
+        $response = $this->controller()->preview($this->jsonRequest($payload));
+        $body = json_decode((string) $response->getContent(), true);
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('invalid_field', $body['error']);
+        self::assertSame('deadline', $body['field']);
     }
 
     public function testFinalSubmissionRecalculatesAndIgnoresClientAmounts(): void
@@ -159,8 +163,10 @@ final class QuoteEstimateControllerTest extends TestCase
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
 
-        $this->expectException(BadRequestHttpException::class);
-        $this->controller()->create($this->jsonRequest($payload), $em);
+        $response = $this->controller()->create($this->jsonRequest($payload), $em);
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('consent', json_decode((string) $response->getContent(), true)['field']);
     }
 
     public function testOversizedCompanyOrPhoneIsRefusedBeforeReachingTheDatabase(): void
@@ -172,12 +178,10 @@ final class QuoteEstimateControllerTest extends TestCase
             $em = $this->createMock(EntityManagerInterface::class);
             $em->expects(self::never())->method('persist');
 
-            try {
-                $this->controller()->create($this->jsonRequest($payload), $em);
-                self::fail(sprintf('A too long %s should be refused.', $field));
-            } catch (BadRequestHttpException) {
-                self::assertTrue(true);
-            }
+            $response = $this->controller()->create($this->jsonRequest($payload), $em);
+
+            self::assertSame(400, $response->getStatusCode(), sprintf('A too long %s should be refused.', $field));
+            self::assertSame($field, json_decode((string) $response->getContent(), true)['field']);
         }
     }
 
@@ -189,8 +193,32 @@ final class QuoteEstimateControllerTest extends TestCase
         $em = $this->createMock(EntityManagerInterface::class);
         $em->expects(self::never())->method('persist');
 
-        $this->expectException(BadRequestHttpException::class);
-        $this->controller()->create($this->jsonRequest($payload), $em);
+        $response = $this->controller()->create($this->jsonRequest($payload), $em);
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('company', json_decode((string) $response->getContent(), true)['field']);
+    }
+
+    /**
+     * The failure a client actually hit: the browser accepted the address, the
+     * server refused it, and the form could only say "l’envoi a échoué".
+     */
+    public function testRefusedEmailNamesTheFieldInsteadOfFailingBlind(): void
+    {
+        foreach (['andré@gmail.com', 'jean..dupont@gmail.com', '.jean@gmail.com', 'jean@gmail'] as $email) {
+            $payload = self::PROJECT_ANSWERS + self::CONTACT;
+            $payload['email'] = $email;
+
+            $em = $this->createMock(EntityManagerInterface::class);
+            $em->expects(self::never())->method('persist');
+
+            $response = $this->controller()->create($this->jsonRequest($payload), $em);
+            $body = json_decode((string) $response->getContent(), true);
+
+            self::assertSame(400, $response->getStatusCode(), $email);
+            self::assertSame('invalid_field', $body['error']);
+            self::assertSame('email', $body['field'], $email);
+        }
     }
 
     public function testCompanyAndPhoneAtTheMaximumLengthAreAccepted(): void
