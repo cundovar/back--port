@@ -63,7 +63,14 @@ class DeepSeekQuoteAnalysisService
                                 . " Tu ne donnes JAMAIS de montant, de prix ni de fourchette: le tarif est calcule ailleurs."
                                 . " Reponds uniquement en JSON avec les cles summary (string de 2 phrases maximum),"
                                 . " recommendedScope (3 strings courtes maximum), missingQuestions (3 maximum),"
-                                . " riskFlags (2 maximum). Sois concis: une reponse trop longue est inutilisable.",
+                                . " riskFlags (2 maximum). Sois concis: une reponse trop longue est inutilisable."
+                                // summary is shown back to the prospect on the confirmation screen; the three
+                                // other keys are internal notes the freelance reads in the backoffice.
+                                . " summary est affiche au prospect lui-meme: vouvoie-le et parle-lui directement,"
+                                . " par exemple 'vous recopiez chaque lundi' et jamais 'le prospect recopie'."
+                                . " N emploie ni troisieme personne ni les mots prospect ou client dans summary."
+                                . " recommendedScope, missingQuestions et riskFlags restent des notes internes"
+                                . " pour le freelance: garde-les factuelles, sans t adresser a personne.",
                         ],
                         [
                             'role' => 'user',
@@ -173,8 +180,8 @@ class DeepSeekQuoteAnalysisService
     {
         return [
             'summary' => sprintf(
-                'Estimation basee sur : %s, formule %s. La fourchette est calculee automatiquement a partir'
-                    . ' de vos reponses ; un echange permettra d affiner le perimetre exact.',
+                'Votre estimation porte sur : %s, formule %s. Le montant est calcule automatiquement a partir'
+                    . ' de vos reponses ; un echange nous permettra d affiner le perimetre exact.',
                 $projectContext['offerLabel'],
                 $projectContext['variantLabel'],
             ),

@@ -207,12 +207,15 @@ class DeepSeekQuoteRecommendationService
             'Tu ne donnes JAMAIS de montant, de prix, de fourchette ni de livrable invente:',
             'tu choisis uniquement parmi les cles fournies.',
             'Reponds en JSON avec exactement les cles summary, essential et complete.',
-            'summary: deux phrases maximum qui reformulent le besoin.',
+            'summary et reasons sont lus par le prospect lui-meme : vouvoie-le et parle-lui directement.',
+            'Ecris "vous perdez une demi-journee", jamais "le prospect perd" ni "il souhaite".',
+            'Aucune troisieme personne, et n emploie jamais les mots "prospect" ou "client".',
+            'summary: deux phrases maximum qui reformulent son besoin en s adressant a lui.',
             'essential: le perimetre minimal qui repond au besoin principal.',
             'complete: reprend la variante et les options de essential, et ajoute ce qui apporte',
             'du confort, du suivi ou de l autonomie.',
             'Chaque perimetre contient variantKey (une cle de variante), optionKeys (liste de cles d options,',
-            'possiblement vide) et reasons (objet cle -> justification de 15 mots maximum).',
+            'possiblement vide) et reasons (objet cle -> justification de 15 mots maximum, adressee a lui).',
             'Si une seule proposition a du sens, renvoie la meme dans essential et complete.',
         ]);
     }

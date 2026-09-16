@@ -36,7 +36,7 @@ final class DeepSeekQuoteRecommendationServiceTest extends TestCase
     public function testValidSelectionIsKept(): void
     {
         $client = $this->clientReturningContent(json_encode([
-            'summary' => "Le prospect  veut \n automatiser ses relances.",
+            'summary' => "Vous voulez  arreter \n de recopier vos relances.",
             'essential' => [
                 'variantKey' => 'automatisation-ciblee',
                 'optionKeys' => ['relances-auto'],
@@ -52,7 +52,7 @@ final class DeepSeekQuoteRecommendationServiceTest extends TestCase
         $result = $this->service($client)->recommend($this->offer(), self::CONTEXT);
 
         self::assertSame('deepseek', $result['source']);
-        self::assertSame('Le prospect veut automatiser ses relances.', $result['summary']);
+        self::assertSame('Vous voulez arreter de recopier vos relances.', $result['summary']);
         self::assertSame('automatisation-ciblee', $result['tiers']['essential']['variantKey']);
         self::assertSame(['relances-auto'], $result['tiers']['essential']['optionKeys']);
         self::assertSame(['relances-auto', 'rapport-hebdo'], $result['tiers']['complete']['optionKeys']);
@@ -178,6 +178,29 @@ final class DeepSeekQuoteRecommendationServiceTest extends TestCase
         // No contact detail: the payload carries an email address nowhere.
         self::assertStringNotContainsString('@', $sent);
         self::assertDoesNotMatchRegularExpression('/\bfullName\b|\bphone\b|\bcompany\b/', $sent);
+    }
+
+    /**
+     * The summary is read by the prospect on screen. Without this instruction the
+     * model drifted into "le prospect perd une demi-journee", talking about the
+     * reader instead of to them.
+     */
+    public function testTheModelIsToldToAddressTheProspectDirectly(): void
+    {
+        $sent = null;
+        $client = new MockHttpClient(static function (string $method, string $url, array $options) use (&$sent): MockResponse {
+            $sent = $options['body'] ?? '';
+
+            return new MockResponse(json_encode([
+                'choices' => [['message' => ['content' => '{"summary":"ok","essential":{"variantKey":"automatisation-ciblee","optionKeys":[]}}']]],
+            ], JSON_THROW_ON_ERROR));
+        });
+
+        $this->service($client)->recommend($this->offer(), self::CONTEXT);
+
+        self::assertIsString($sent);
+        self::assertStringContainsString('vouvoie-le', $sent);
+        self::assertStringContainsString('Aucune troisieme personne', $sent);
     }
 
     private function service(HttpClientInterface $client): DeepSeekQuoteRecommendationService
