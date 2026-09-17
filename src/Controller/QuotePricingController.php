@@ -31,7 +31,7 @@ final class QuotePricingController
 
         return new JsonResponse([
             'version' => $configuration->getVersion(),
-            'catalog' => $configuration->getCatalog(),
+            'catalog' => QuotePricingCatalog::withDefaults($configuration->getCatalog()),
         ]);
     }
 
@@ -45,7 +45,9 @@ final class QuotePricingController
         return new JsonResponse([
             'version' => $configuration->getVersion(),
             'updatedAt' => $configuration->getUpdatedAt()->format('c'),
-            'catalog' => $configuration->getCatalog(),
+            // Completed here too, so the backoffice shows the list and saving
+            // the grid writes it in for good.
+            'catalog' => QuotePricingCatalog::withDefaults($configuration->getCatalog()),
         ]);
     }
 

@@ -43,6 +43,18 @@ class QuotePricingCatalog
                 ['key' => 'reseaux-sociaux', 'label' => 'Des réseaux sociaux'],
                 ['key' => 'aucun', 'label' => 'Aucun outil particulier'],
             ],
+            // Asked only when something already exists. Taking over a WordPress
+            // and taking over a React app are two different jobs, and the tool
+            // list above never says which one it is. The technical names sit in
+            // brackets so the wording stays readable to a non-technical client,
+            // and "je ne sais pas" is a real answer: many clients do not know.
+            'stacks' => [
+                ['key' => 'wordpress', 'label' => 'WordPress'],
+                ['key' => 'constructeur', 'label' => 'Un créateur de site (Wix, Squarespace, Shopify)'],
+                ['key' => 'sur-mesure', 'label' => 'Une application développée sur mesure (React, Node, Python…)'],
+                ['key' => 'genere-ia', 'label' => 'Créé avec un outil d’IA (Lovable, Bolt, v0, Cursor…)'],
+                ['key' => 'inconnu', 'label' => 'Je ne sais pas'],
+            ],
             'offers' => [
                 [
                     'key' => 'site-vitrine',
@@ -250,6 +262,7 @@ class QuotePricingCatalog
         $errors = [];
 
         $errors = array_merge($errors, $this->validateTools($catalog['tools'] ?? []));
+        $errors = array_merge($errors, $this->validateNamedList($catalog['stacks'] ?? [], 'stacks', 'Socle invalide.'));
 
         $offers = $catalog['offers'] ?? null;
         if (!is_array($offers) || $offers === []) {
@@ -346,6 +359,14 @@ class QuotePricingCatalog
 
         $tools = $catalog['tools'] ?? null;
         $catalog['tools'] = is_array($tools) ? array_values($tools) : [];
+
+        // A grid saved before this list existed carries no stacks. Falling back
+        // to the default is what lets the question appear without the owner
+        // having to open the backoffice and save again.
+        $stacks = $catalog['stacks'] ?? null;
+        $catalog['stacks'] = is_array($stacks) && $stacks !== []
+            ? array_values($stacks)
+            : self::defaultCatalog()['stacks'];
 
         if (!isset($catalog['adjustments']) || !is_array($catalog['adjustments'])) {
             $catalog['adjustments'] = self::defaultCatalog()['adjustments'];
@@ -544,6 +565,95 @@ class QuotePricingCatalog
         }
 
         return $errors;
+    }
+
+    /**
+     * Completes a stored grid with the lists it predates. Callers read through
+     * this rather than from the entity: the grid in the database was saved
+     * before `stacks` existed, and without this the question would stay hidden
+     * until someone opened the backoffice and saved the grid by hand.
+     *
+     * @param array<string, mixed> $catalog
+     *
+     * @return array<string, mixed>
+     */
+    public static function withDefaults(array $catalog): array
+    {
+        foreach (['stacks'] as $list) {
+            if (!isset($catalog[$list]) || !is_array($catalog[$list]) || $catalog[$list] === []) {
+                $catalog[$list] = self::defaultCatalog()[$list];
+            }
+        }
+
+        return $catalog;
+    }
+
+    /**
+     * Same contract as the tools: a key, a label, no duplicate, no amount. Both
+     * lists are context for the qualification and must never reach a price.
+     *
+     * @return list<array{path: string, message: string}>
+     */
+    private function validateNamedList(mixed $items, string $root, string $invalidMessage): array
+    {
+        if (!is_array($items)) {
+            return [['path' => $root, 'message' => 'Liste attendue.']];
+        }
+
+        $errors = [];
+        $seen = [];
+
+        foreach ($items as $index => $item) {
+            $path = sprintf('%s.%d', $root, $index);
+
+            if (!is_array($item)) {
+                $errors[] = ['path' => $path, 'message' => $invalidMessage];
+                continue;
+            }
+
+            foreach (['key', 'label'] as $field) {
+                if (!isset($item[$field]) || !is_string($item[$field]) || trim($item[$field]) === '') {
+                    $errors[] = ['path' => $path . '.' . $field, 'message' => 'Champ texte requis.'];
+                }
+            }
+
+            $key = is_string($item['key'] ?? null) ? $item['key'] : '';
+            if ($key !== '') {
+                if (in_array($key, $seen, true)) {
+                    $errors[] = ['path' => $path . '.key', 'message' => 'Clé en double.'];
+                }
+                $seen[] = $key;
+            }
+
+            foreach (['minimumAmount', 'maximumAmount', 'amount'] as $forbidden) {
+                if (isset($item[$forbidden])) {
+                    $errors[] = ['path' => $path . '.' . $forbidden, 'message' => 'Cet élément ne porte aucun montant.'];
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * One choice, not a list. An unknown key is ignored rather than refused, for
+     * the same reason as the tools: a stale browser tab never blocks the journey.
+     *
+     * @return array{key: string, label: string}
+     */
+    public function resolveStack(array $catalog, mixed $submitted): array
+    {
+        if (!is_string($submitted) || $submitted === '') {
+            return ['key' => '', 'label' => ''];
+        }
+
+        foreach ($catalog['stacks'] ?? [] as $stack) {
+            if (is_array($stack) && ($stack['key'] ?? null) === $submitted && isset($stack['label'])) {
+                return ['key' => $submitted, 'label' => (string) $stack['label']];
+            }
+        }
+
+        return ['key' => '', 'label' => ''];
     }
 
     /**

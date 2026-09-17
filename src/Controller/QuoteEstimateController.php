@@ -111,15 +111,26 @@ final class QuoteEstimateController
             return new JsonResponse(['error' => 'invalid_catalog_value', 'message' => $exception->getMessage()], 422);
         }
 
-        $analysis = $this->analysisService->analyze($this->buildProjectContext($answers, $calculation), $calculation['calculationDetail']);
+        $tools = $this->catalogService->resolveTools($configuration->getCatalog(), $payload['toolKeys'] ?? []);
+        // Only meaningful on the "something already exists" path; the browser
+        // clears it when the visitor goes back to a new project. Resolved before
+        // the analysis: taking over a WordPress and taking over a React app are
+        // two different jobs, and the model cannot see that anywhere else.
+        $stack = $this->catalogService->resolveStack(
+            QuotePricingCatalog::withDefaults($configuration->getCatalog()),
+            $payload['existingStackKey'] ?? null,
+        );
+
+        $analysis = $this->analysisService->analyze(
+            $this->buildProjectContext($answers, $calculation, $stack['label']),
+            $calculation['calculationDetail'],
+        );
 
         $estimate = new QuoteEstimate();
         $estimate->setServiceKey($answers['offerKey']);
         $estimate->setOfferKey($answers['offerKey']);
         $estimate->setVariantKey($answers['variantKey']);
         $estimate->setPricingVersion($configuration->getVersion());
-        $tools = $this->catalogService->resolveTools($configuration->getCatalog(), $payload['toolKeys'] ?? []);
-
         // Everything readable later is frozen here, from the catalog used that day:
         // a later price edit must not rewrite what the client was shown.
         $estimate->setAnswers([
@@ -131,6 +142,8 @@ final class QuoteEstimateController
             'disclaimer' => $calculation['disclaimer'],
             'toolKeys' => $tools['keys'],
             'toolLabels' => $tools['labels'],
+            'existingStackKey' => $stack['key'],
+            'existingStackLabel' => $stack['label'],
             'projectStage' => $answers['projectStage'],
             'contentReadiness' => $answers['contentReadiness'],
             'deadline' => $answers['deadline'],
@@ -388,12 +401,13 @@ final class QuoteEstimateController
     /**
      * Only project-shaped data: contact details never reach the model.
      */
-    private function buildProjectContext(array $answers, array $calculation): array
+    private function buildProjectContext(array $answers, array $calculation, string $existingStackLabel = ''): array
     {
         return [
             'offerLabel' => $calculation['offerLabel'],
             'variantLabel' => $calculation['variantLabel'],
             'optionLabels' => array_map(static fn (array $option): string => $option['label'], $calculation['selectedOptions']),
+            'existingStack' => $existingStackLabel,
             'projectStage' => $answers['projectStage'],
             'contentReadiness' => $answers['contentReadiness'],
             'deadline' => $answers['deadline'],

@@ -8,6 +8,15 @@ use App\Entity\QuoteEstimate;
 
 class QuoteEstimateNotificationService
 {
+    /**
+     * Answer keys already shown under their own wording. Anything else is dumped
+     * raw under "Réponses", so a key listed here must have a line of its own.
+     */
+    private const RENDERED_ANSWER_KEYS = [
+        'offerLabel', 'variantLabel', 'selectedOptions', 'includes', 'pricingMode',
+        'disclaimer', 'toolKeys', 'toolLabels', 'existingStackKey', 'existingStackLabel',
+    ];
+
     public function __construct(
         private readonly BrevoEmailSender $brevoEmailSender,
         private readonly BrandedEmailRenderer $renderer,
@@ -59,9 +68,8 @@ class QuoteEstimateNotificationService
     {
         $answers = $estimate->getAnswers();
         $extra = [];
-        $rendered = ['offerLabel', 'variantLabel', 'selectedOptions', 'includes', 'pricingMode', 'disclaimer', 'toolKeys', 'toolLabels'];
         foreach ($answers as $key => $value) {
-            if (!in_array($key, $rendered, true)) {
+            if (!in_array($key, self::RENDERED_ANSWER_KEYS, true)) {
                 $extra[(string) $key] = $this->stringifyAnswer($value);
             }
         }
@@ -78,6 +86,7 @@ class QuoteEstimateNotificationService
                 'Formule' => (string) ($answers['variantLabel'] ?? '—'),
                 'Grille' => 'version '.$estimate->getPricingVersion(),
                 'Montant' => $this->formatAmount($estimate, $answers),
+                'Existant' => (string) ($answers['existingStackLabel'] ?? '') ?: 'Non précisé',
             ])
                 .$this->renderer->subheading('Ce qui est compris')
                 .$this->renderer->bullets($answers['includes'] ?? [], 'Aucun élément enregistré')
@@ -190,6 +199,7 @@ class QuoteEstimateNotificationService
             $this->formatList(array_column($answers['selectedOptions'] ?? [], 'label'), 'Aucune option'),
             '',
             'Outils déjà utilisés : ' . ($this->formatInline($answers['toolLabels'] ?? []) ?: 'Non précisés'),
+            'Existant construit avec : ' . (($answers['existingStackLabel'] ?? '') ?: 'Non précisé'),
             '',
             // Qualification only: never an engagement, never part of the price.
             'Qualification IA (' . $estimate->getAiSource() . ') : ' . ($estimate->getAiSummary() ?: 'Non disponible'),
@@ -197,9 +207,8 @@ class QuoteEstimateNotificationService
             'Réponses :',
         ];
 
-        $rendered = ['offerLabel', 'variantLabel', 'selectedOptions', 'includes', 'pricingMode', 'disclaimer', 'toolKeys', 'toolLabels'];
         foreach ($answers as $key => $value) {
-            if (!in_array($key, $rendered, true)) {
+            if (!in_array($key, self::RENDERED_ANSWER_KEYS, true)) {
                 $lines[] = sprintf('- %s : %s', $key, $this->stringifyAnswer($value));
             }
         }

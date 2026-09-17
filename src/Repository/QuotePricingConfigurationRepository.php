@@ -22,6 +22,11 @@ class QuotePricingConfigurationRepository extends ServiceEntityRepository
     /**
      * The table holds a single active row; the seed lets a fresh database work
      * before the migration data has been applied.
+     *
+     * The entity is returned untouched on purpose: the admin save path persists
+     * this very object, and completing the catalog here would both write the
+     * defaults back on any unrelated flush and mark the row dirty for nothing.
+     * Reading is QuotePricingCatalog::withDefaults()'s job.
      */
     public function getActive(): QuotePricingConfiguration
     {
