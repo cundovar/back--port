@@ -16,12 +16,28 @@ final class BrevoEmailSender
     ) {
     }
 
-    public function send(string $apiKey, string $from, string $to, string $subject, string $textContent): bool
+    /**
+     * $htmlContent is optional and always sent alongside the text part: a client
+     * that refuses HTML, and the plain-text preview inboxes show, both still get
+     * the whole message.
+     */
+    public function send(string $apiKey, string $from, string $to, string $subject, string $textContent, ?string $htmlContent = null): bool
     {
         if ($apiKey === '') {
             $this->logger->warning('Brevo notification skipped: BREVO_API_KEY is not configured.');
 
             return false;
+        }
+
+        $payload = [
+            'sender' => ['email' => $from],
+            'to' => [['email' => $to]],
+            'subject' => $subject,
+            'textContent' => $textContent,
+        ];
+
+        if ($htmlContent !== null && $htmlContent !== '') {
+            $payload['htmlContent'] = $htmlContent;
         }
 
         try {
@@ -31,12 +47,7 @@ final class BrevoEmailSender
                     'api-key' => $apiKey,
                     'content-type' => 'application/json',
                 ],
-                'json' => [
-                    'sender' => ['email' => $from],
-                    'to' => [['email' => $to]],
-                    'subject' => $subject,
-                    'textContent' => $textContent,
-                ],
+                'json' => $payload,
                 'timeout' => 10,
             ]);
 

@@ -15,6 +15,7 @@ class ContactRequestNotificationService
 {
     public function __construct(
         private readonly BrevoEmailSender $brevoEmailSender,
+        private readonly BrandedEmailRenderer $renderer,
         private readonly string $recipientEmail,
         private readonly string $senderEmail,
         private readonly string $signatureName,
@@ -29,6 +30,7 @@ class ContactRequestNotificationService
             $this->recipientEmail,
             sprintf('Nouvelle demande de contact — %s', $request->getFullName()),
             $this->formatOwnerBody($request),
+            $this->renderOwnerHtml($request),
         );
     }
 
@@ -45,7 +47,61 @@ class ContactRequestNotificationService
             $request->getEmail(),
             'Votre demande est bien reçue',
             $this->formatClientBody($request),
+            $this->renderClientHtml($request),
         );
+    }
+
+    private function renderOwnerHtml(ContactRequest $request): string
+    {
+        return $this->renderer->render(
+            'Nouvelle demande',
+            sprintf('%s — %s', $request->getFullName(), $request->getMissionType()),
+            $this->renderer->rows($this->ownerFields($request))
+                .$this->renderer->subheading('Son besoin')
+                .$this->renderer->quote($request->getMessage()),
+        );
+    }
+
+    private function renderClientHtml(ContactRequest $request): string
+    {
+        return $this->renderer->render(
+            'Demande bien reçue',
+            'Voici le récapitulatif de ce que vous venez d’envoyer.',
+            $this->renderer->paragraph(sprintf('Bonjour %s,', $this->firstName($request->getFullName())))
+                .$this->renderer->paragraph('J’ai bien reçu votre demande. Je reviens vers vous rapidement.')
+                .$this->renderer->subheading('Ce que vous m’avez envoyé')
+                .$this->renderer->rows($this->clientFields($request))
+                .$this->renderer->subheading('Votre besoin')
+                .$this->renderer->quote($request->getMessage())
+                .$this->renderer->note('Si quelque chose manque ou doit être corrigé, répondez simplement à cet email.')
+                .$this->renderer->signature($this->signatureName),
+        );
+    }
+
+    /** @return array<string, string> */
+    private function ownerFields(ContactRequest $request): array
+    {
+        return [
+            'Nom' => $request->getFullName(),
+            'Email' => $request->getEmail(),
+            'Entreprise' => $request->getCompany() ?: 'Non précisée',
+            'Fonction' => $request->getPosition() ?: 'Non précisée',
+            'Mission' => $request->getMissionType(),
+            'Budget' => $request->getBudget() ?: 'Non précisé',
+            'Délai' => $request->getTimeline() ?: 'Non précisé',
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function clientFields(ContactRequest $request): array
+    {
+        return [
+            'Type de mission' => $request->getMissionType(),
+            'Entreprise' => $request->getCompany() ?: 'Non précisée',
+            'Fonction' => $request->getPosition() ?: 'Non précisée',
+            'Budget indicatif' => $request->getBudget() ?: 'Non précisé',
+            'Délai souhaité' => $request->getTimeline() ?: 'Non précisé',
+        ];
     }
 
     private function formatOwnerBody(ContactRequest $request): string

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Service;
 
 use App\Entity\QuoteEstimate;
+use App\Service\BrandedEmailRenderer;
 use App\Service\BrevoEmailSender;
 use App\Service\QuoteEstimateNotificationService;
 use PHPUnit\Framework\TestCase;
@@ -76,11 +77,39 @@ final class QuoteEstimateNotificationServiceTest extends TestCase
         }
     }
 
+    public function testTheClientHtmlLeaksNoInternalQualificationEither(): void
+    {
+        $sent = [];
+        $this->service($sent)->notifyClient($this->estimate());
+
+        $html = $this->lastPayload($sent)['htmlContent'];
+
+        foreach (['Qualification IA', 'deepseek', 'Le prospect perd', 'version 7', 'Réponses'] as $internal) {
+            self::assertStringNotContainsString($internal, $html, $internal);
+        }
+
+        self::assertStringContainsString('Arrêter de refaire la même tâche', $html);
+        self::assertStringContainsString('Prix de départ pour le périmètre décrit', $html);
+    }
+
+    public function testTheOwnerHtmlKeepsTheQualification(): void
+    {
+        $sent = [];
+        $this->service($sent)->notify($this->estimate());
+
+        $html = $this->lastPayload($sent)['htmlContent'];
+
+        self::assertStringContainsString('Qualification IA', $html);
+        self::assertStringContainsString('Le prospect perd', $html);
+        self::assertStringContainsString('version 7', $html);
+    }
+
     public function testAMissingApiKeyReportsFailureInsteadOfThrowing(): void
     {
         $sent = [];
         $service = new QuoteEstimateNotificationService(
             new BrevoEmailSender($this->client($sent), new NullLogger()),
+            new BrandedEmailRenderer('Facundo Varas', 'https://varascundo.com'),
             self::OWNER_EMAIL,
             self::SENDER_EMAIL,
             'Facundo',
@@ -110,6 +139,7 @@ final class QuoteEstimateNotificationServiceTest extends TestCase
 
         return new QuoteEstimateNotificationService(
             new BrevoEmailSender($this->client($sent), new NullLogger()),
+            new BrandedEmailRenderer('Facundo Varas', 'https://varascundo.com'),
             self::OWNER_EMAIL,
             self::SENDER_EMAIL,
             'Facundo',

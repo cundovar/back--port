@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Service;
 
 use App\Entity\ContactRequest;
+use App\Service\BrandedEmailRenderer;
 use App\Service\BrevoEmailSender;
 use App\Service\ContactRequestNotificationService;
 use PHPUnit\Framework\TestCase;
@@ -77,6 +78,56 @@ final class ContactRequestNotificationServiceTest extends TestCase
         self::assertStringContainsString('Délai souhaité : Non précisé', $body);
     }
 
+    public function testBothEmailsCarryAnHtmlHalfBesideTheText(): void
+    {
+        $sent = [];
+        $service = $this->service($sent);
+        $service->notify($this->request());
+        $service->notifyClient($this->request());
+
+        foreach ($sent as $index => $payload) {
+            self::assertArrayHasKey('htmlContent', $payload, 'email '.$index);
+            self::assertArrayHasKey('textContent', $payload, 'email '.$index);
+            self::assertStringContainsString('<!doctype html>', $payload['htmlContent']);
+            self::assertStringContainsString('Facundo Varas', $payload['htmlContent']);
+        }
+    }
+
+    public function testTheConfirmationHtmlRepeatsWhatTheVisitorTyped(): void
+    {
+        $sent = [];
+        $this->service($sent)->notifyClient($this->request());
+
+        $html = $this->lastPayload($sent)['htmlContent'];
+
+        self::assertStringContainsString('Type de mission', $html);
+        self::assertStringContainsString('Automatisation', $html);
+        self::assertStringContainsString('Studio Martin', $html);
+        self::assertStringContainsString('Je recopie les commandes à la main chaque matin.', $html);
+    }
+
+    /**
+     * The message is free text typed by a stranger and lands in both emails: it
+     * must reach the mailbox as characters, never as markup.
+     */
+    public function testMarkupTypedInTheFormNeverReachesTheMailboxAsMarkup(): void
+    {
+        $sent = [];
+        $request = $this->request();
+        $request->setMessage('<img src=x onerror="alert(1)"> bonjour');
+        $request->setFullName('<b>Claire</b>');
+
+        $service = $this->service($sent);
+        $service->notify($request);
+        $service->notifyClient($request);
+
+        foreach ($sent as $index => $payload) {
+            self::assertStringNotContainsString('<img src=x', $payload['htmlContent'], 'email '.$index);
+            self::assertStringNotContainsString('<b>Claire</b>', $payload['htmlContent'], 'email '.$index);
+            self::assertStringContainsString('&lt;img src=x', $payload['htmlContent'], 'email '.$index);
+        }
+    }
+
     public function testAMissingApiKeyReportsFailureInsteadOfThrowing(): void
     {
         $sent = [];
@@ -111,6 +162,7 @@ final class ContactRequestNotificationServiceTest extends TestCase
     {
         return new ContactRequestNotificationService(
             new BrevoEmailSender($this->client($sent), new NullLogger()),
+            new BrandedEmailRenderer('Facundo Varas', 'https://varascundo.com'),
             self::OWNER_EMAIL,
             self::SENDER_EMAIL,
             'Facundo',

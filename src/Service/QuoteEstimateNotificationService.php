@@ -10,6 +10,7 @@ class QuoteEstimateNotificationService
 {
     public function __construct(
         private readonly BrevoEmailSender $brevoEmailSender,
+        private readonly BrandedEmailRenderer $renderer,
         private readonly string $recipientEmail,
         private readonly string $senderEmail,
         private readonly string $signatureName,
@@ -28,6 +29,7 @@ class QuoteEstimateNotificationService
             $this->recipientEmail,
             sprintf('Nouvelle estimation — %s', $estimate->getFullName()),
             $this->formatBody($estimate),
+            $this->renderOwnerHtml($estimate),
         );
     }
 
@@ -45,6 +47,76 @@ class QuoteEstimateNotificationService
             $estimate->getEmail(),
             sprintf('Votre demande est bien reçue — %s', $this->offerLabel($estimate)),
             $this->formatClientBody($estimate),
+            $this->renderClientHtml($estimate),
+        );
+    }
+
+    /**
+     * The HTML halves mirror the plain-text bodies exactly, including the line
+     * the prospect must never read: the qualification stays on the owner's copy.
+     */
+    private function renderOwnerHtml(QuoteEstimate $estimate): string
+    {
+        $answers = $estimate->getAnswers();
+        $extra = [];
+        $rendered = ['offerLabel', 'variantLabel', 'selectedOptions', 'includes', 'pricingMode', 'disclaimer', 'toolKeys', 'toolLabels'];
+        foreach ($answers as $key => $value) {
+            if (!in_array($key, $rendered, true)) {
+                $extra[(string) $key] = $this->stringifyAnswer($value);
+            }
+        }
+
+        return $this->renderer->render(
+            'Nouvelle estimation',
+            sprintf('%s — %s', $estimate->getFullName(), $this->offerLabel($estimate)),
+            $this->renderer->rows([
+                'Nom' => $estimate->getFullName(),
+                'Email' => $estimate->getEmail(),
+                'Entreprise' => $estimate->getCompany() ?: 'Non précisée',
+                'Téléphone' => $estimate->getPhone() ?: 'Non précisé',
+                'Prestation' => $this->offerLabel($estimate),
+                'Formule' => (string) ($answers['variantLabel'] ?? '—'),
+                'Grille' => 'version '.$estimate->getPricingVersion(),
+                'Montant' => $this->formatAmount($estimate, $answers),
+            ])
+                .$this->renderer->subheading('Ce qui est compris')
+                .$this->renderer->bullets($answers['includes'] ?? [], 'Aucun élément enregistré')
+                .$this->renderer->subheading('Options retenues')
+                .$this->renderer->bullets(array_column($answers['selectedOptions'] ?? [], 'label'), 'Aucune option')
+                .$this->renderer->subheading('Qualification IA ('.$estimate->getAiSource().')')
+                .$this->renderer->paragraph($estimate->getAiSummary() ?: 'Non disponible')
+                .$this->renderer->subheading('Réponses')
+                .$this->renderer->rows($extra),
+        );
+    }
+
+    private function renderClientHtml(QuoteEstimate $estimate): string
+    {
+        $answers = $estimate->getAnswers();
+
+        return $this->renderer->render(
+            'Demande bien reçue',
+            'Voici le récapitulatif de ce que vous avez sélectionné.',
+            $this->renderer->paragraph(sprintf('Bonjour %s,', $this->firstName($estimate->getFullName())))
+                .$this->renderer->paragraph('J\'ai bien reçu votre demande. Je reviens vers vous rapidement pour en parler.')
+                .$this->renderer->subheading('Ce que vous avez sélectionné')
+                .$this->renderer->rows([
+                    'Votre projet' => $this->offerLabel($estimate),
+                    'Formule' => (string) ($answers['variantLabel'] ?? '—'),
+                    'Montant' => $this->formatAmount($estimate, $answers),
+                    'Vos outils' => $this->formatInline($answers['toolLabels'] ?? []) ?: 'Non précisés',
+                ])
+                .$this->renderer->subheading('Ce qui est compris')
+                .$this->renderer->bullets($answers['includes'] ?? [], 'Aucun élément enregistré')
+                .$this->renderer->subheading('Options retenues')
+                .$this->renderer->bullets(array_column($answers['selectedOptions'] ?? [], 'label'), 'Aucune option')
+                .$this->renderer->note(
+                    trim((string) ($answers['disclaimer'] ?? ''))
+                    ."\n".'Ce montant reprend la formule et les options que vous avez choisies. Il ne remplace pas un '
+                    .'devis : nous le confirmons ensemble une fois le périmètre précisé. Si quelque chose ne correspond '
+                    .'pas à votre besoin, répondez simplement à cet email.'
+                )
+                .$this->renderer->signature($this->signatureName),
         );
     }
 
