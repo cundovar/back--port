@@ -50,7 +50,7 @@ final class ContentControllerTest extends TestCase
         self::assertSame([], $payload['problems']);
         self::assertSame([], $payload['process']);
         self::assertSame([], $payload['expertise']);
-        self::assertSame(['title' => '', 'subtitle' => '', 'items' => []], $payload['availability']);
+        self::assertArrayNotHasKey('availability', $payload);
     }
 
     public function testGetContentReturnsEmptyObjectWhenNoContentExists(): void
@@ -83,7 +83,6 @@ final class ContentControllerTest extends TestCase
                 'problems' => [],
                 'process' => [],
                 'expertise' => [],
-                'availability' => ['title' => '', 'subtitle' => '', 'items' => []],
             ],
             json_decode((string) $response->getContent(), true),
         );
@@ -102,7 +101,6 @@ final class ContentControllerTest extends TestCase
                     'deliverables' => 'workflow',
                 ],
             ],
-            'availability' => [],
         ], JSON_THROW_ON_ERROR));
         $request->headers->set('Authorization', 'Bearer test-token');
 
@@ -117,7 +115,6 @@ final class ContentControllerTest extends TestCase
         self::assertEqualsCanonicalizing(
             [
                 ['path' => 'services.0.deliverables', 'message' => 'Expected an array of strings.'],
-                ['path' => 'availability', 'message' => 'Expected an object.'],
             ],
             json_decode((string) $response->getContent(), true)['errors'],
         );

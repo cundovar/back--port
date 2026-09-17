@@ -13,11 +13,6 @@ final class ContentSchemaService
         'problems' => [],
         'process' => [],
         'expertise' => [],
-        'availability' => [
-            'title' => '',
-            'subtitle' => '',
-            'items' => [],
-        ],
     ];
 
     public function normalize(array $payload): array
@@ -45,13 +40,6 @@ final class ContentSchemaService
                     'message' => 'Expected an array.',
                 ];
             }
-        }
-
-        if (array_key_exists('availability', $payload) && !$this->isAssocArray($payload['availability'])) {
-            $errors[] = [
-                'path' => 'availability',
-                'message' => 'Expected an object.',
-            ];
         }
 
         foreach (($payload['services'] ?? []) as $index => $service) {
