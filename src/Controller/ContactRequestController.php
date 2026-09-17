@@ -6,7 +6,7 @@ namespace App\Controller;
 
 use App\Entity\ContactRequest;
 use App\Security\AdminTokenGuard;
-use App\Service\BrevoEmailSender;
+use App\Service\ContactRequestNotificationService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,9 +17,7 @@ use Symfony\Component\Routing\Attribute\Route;
 final class ContactRequestController
 {
     public function __construct(
-        private readonly BrevoEmailSender $brevoEmailSender,
-        private readonly string $recipientEmail,
-        private readonly string $senderEmail,
+        private readonly ContactRequestNotificationService $notificationService,
     ) {
     }
 
@@ -42,15 +40,16 @@ final class ContactRequestController
         $em->persist($contactRequest);
         $em->flush();
 
-        $notificationSent = $this->brevoEmailSender->send(
-            $this->brevoApiKey(),
-            $this->senderEmail,
-            $this->recipientEmail,
-            sprintf('Nouvelle demande de contact — %s', $contactRequest->getFullName()),
-            $this->formatEmailBody($contactRequest),
-        );
+        $notificationSent = $this->notificationService->notify($contactRequest);
+        // The visitor gets their own copy of what they typed. Its failure does
+        // not change the status code: the request is saved either way, and the
+        // owner's notification is what decides whether anything was missed.
+        $confirmationSent = $this->notificationService->notifyClient($contactRequest);
 
-        return new JsonResponse(['ok' => true, 'notificationSent' => $notificationSent], $notificationSent ? 201 : 202);
+        return new JsonResponse(
+            ['ok' => true, 'notificationSent' => $notificationSent, 'confirmationSent' => $confirmationSent],
+            $notificationSent ? 201 : 202,
+        );
     }
 
     #[Route('/api/admin/contact-requests', methods: ['GET'])]
@@ -175,28 +174,5 @@ final class ContactRequestController
             'qualifiedAt' => $request->getQualifiedAt()?->format('c'),
             'notes' => $request->getNotes(),
         ];
-    }
-
-    private function formatEmailBody(ContactRequest $request): string
-    {
-        return implode("\n", [
-            'Nom : '.$request->getFullName(),
-            'Email : '.$request->getEmail(),
-            'Entreprise : '.$request->getCompany(),
-            'Fonction : '.$request->getPosition(),
-            'Mission : '.$request->getMissionType(),
-            'Budget : '.($request->getBudget() ?: 'Non précisé'),
-            'Délai : '.($request->getTimeline() ?: 'Non précisé'),
-            '',
-            'Message :',
-            $request->getMessage(),
-        ]);
-    }
-
-    private function brevoApiKey(): string
-    {
-        $apiKey = $_SERVER['BREVO_API_KEY'] ?? $_ENV['BREVO_API_KEY'] ?? getenv('BREVO_API_KEY') ?: '';
-
-        return is_string($apiKey) ? $apiKey : '';
     }
 }

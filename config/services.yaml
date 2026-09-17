@@ -21,6 +21,9 @@ parameters:
     github.token: '%env(GITHUB_TOKEN)%'
     contact.recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
     contact.sender_email: '%env(MAILER_FROM_EMAIL)%'
+    # Signs the confirmation sent to the visitor, like the quote one. Versioned
+    # on purpose: no new environment variable to declare before deploying.
+    contact.notification_signature: 'Facundo'
     quote.notification_recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
     quote.notification_sender_email: '%env(MAILER_FROM_EMAIL)%'
     # Signs the acknowledgement sent to the prospect. Versioned on purpose: no
@@ -60,10 +63,11 @@ services:
             $defaultMaxWords: '%openai.bulletin_max_words%'
             $style: '%openai.bulletin_style%'
 
-    App\Controller\ContactRequestController:
+    App\Service\ContactRequestNotificationService:
         arguments:
             $recipientEmail: '%contact.recipient_email%'
             $senderEmail: '%contact.sender_email%'
+            $signatureName: '%contact.notification_signature%'
 
     App\Service\SkillsSnapshotService:
         arguments:
