@@ -252,4 +252,47 @@ final class QuotePricingCatalogTest extends TestCase
             self::assertIsBool($offer['contentQuestion'], $offer['key']);
         }
     }
+
+    public function testAVariantMayPointAtTheStacksItAnswers(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['stackKeys'] = ['wordpress'];
+
+        self::assertSame([], $this->catalog->validate($catalog));
+    }
+
+    public function testAVariantCannotPointAtAnUnknownStack(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['stackKeys'] = ['drupal'];
+
+        self::assertContains(
+            'offers.0.variants.0.stackKeys',
+            array_column($this->catalog->validate($catalog), 'path'),
+        );
+    }
+
+    public function testAVariantRefusesADuplicateOrMalformedStack(): void
+    {
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['stackKeys'] = ['wordpress', 'wordpress'];
+        $catalog['offers'][0]['variants'][1]['stackKeys'] = 'wordpress';
+
+        $paths = array_column($this->catalog->validate($catalog), 'path');
+
+        self::assertContains('offers.0.variants.0.stackKeys', $paths);
+        self::assertContains('offers.0.variants.1.stackKeys', $paths);
+    }
+
+    public function testSavingAGridKeepsTheStackLinks(): void
+    {
+        // normalize() only reindexes: a field it predates must survive, or the
+        // backoffice tick would be lost on the very next save.
+        $catalog = QuotePricingCatalog::defaultCatalog();
+        $catalog['offers'][0]['variants'][0]['stackKeys'] = ['wordpress'];
+
+        $normalized = $this->catalog->normalize($catalog);
+
+        self::assertSame(['wordpress'], $normalized['offers'][0]['variants'][0]['stackKeys']);
+    }
 }

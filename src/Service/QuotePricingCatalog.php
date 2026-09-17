@@ -264,6 +264,15 @@ class QuotePricingCatalog
         $errors = array_merge($errors, $this->validateTools($catalog['tools'] ?? []));
         $errors = array_merge($errors, $this->validateNamedList($catalog['stacks'] ?? [], 'stacks', 'Socle invalide.'));
 
+        // Variants may point at these; collected once so a dangling reference
+        // is reported on the variant that carries it.
+        $stackKeys = [];
+        foreach (self::withDefaults($catalog)['stacks'] as $stack) {
+            if (is_array($stack) && is_string($stack['key'] ?? null)) {
+                $stackKeys[] = $stack['key'];
+            }
+        }
+
         $offers = $catalog['offers'] ?? null;
         if (!is_array($offers) || $offers === []) {
             return array_merge($errors, [['path' => 'offers', 'message' => 'Au moins une offre est requise.']]);
@@ -306,6 +315,7 @@ class QuotePricingCatalog
                     }
 
                     $errors = array_merge($errors, $this->validateVariantContract($variant, $variantPath));
+                    $errors = array_merge($errors, $this->validateVariantStackKeys($variant, $variantPath, $stackKeys));
                 }
             }
 
@@ -561,6 +571,50 @@ class QuotePricingCatalog
                 if (isset($tool[$forbidden])) {
                     $errors[] = ['path' => $path . '.' . $forbidden, 'message' => 'Un outil ne porte aucun montant.'];
                 }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * A variant may name the stacks it answers, so picking "built with an AI
+     * tool" lands on the matching formula instead of asking the same thing
+     * twice. Strict here on purpose: the backoffice shows both lists side by
+     * side, so a dangling reference is a mistake worth reporting rather than a
+     * preselection that silently never fires.
+     *
+     * @return list<array{path: string, message: string}>
+     */
+    private function validateVariantStackKeys(mixed $variant, string $path, array $stackKeys): array
+    {
+        if (!is_array($variant) || !array_key_exists('stackKeys', $variant)) {
+            return [];
+        }
+
+        $keys = $variant['stackKeys'];
+        if (!is_array($keys)) {
+            return [['path' => $path . '.stackKeys', 'message' => 'Liste de socles attendue.']];
+        }
+
+        $errors = [];
+        $seen = [];
+
+        foreach ($keys as $key) {
+            if (!is_string($key) || trim($key) === '') {
+                $errors[] = ['path' => $path . '.stackKeys', 'message' => 'Clé de socle invalide.'];
+                continue;
+            }
+
+            if (in_array($key, $seen, true)) {
+                $errors[] = ['path' => $path . '.stackKeys', 'message' => 'Socle en double.'];
+                continue;
+            }
+
+            $seen[] = $key;
+
+            if (!in_array($key, $stackKeys, true)) {
+                $errors[] = ['path' => $path . '.stackKeys', 'message' => sprintf('Socle inconnu : %s.', $key)];
             }
         }
 
