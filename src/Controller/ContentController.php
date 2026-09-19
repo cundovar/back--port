@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\Content;
 use App\Security\AdminTokenGuard;
+use App\Service\ContentSchemaService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -15,21 +16,22 @@ use Symfony\Component\Routing\Attribute\Route;
 final class ContentController
 {
     #[Route('/api/content', methods: ['GET'])]
-    public function getContent(EntityManagerInterface $em): JsonResponse
+    public function getContent(EntityManagerInterface $em, ContentSchemaService $schemaService): JsonResponse
     {
         $content = $this->getSingletonContent($em);
         if (!$content) {
-            return new JsonResponse([]);
+            return new JsonResponse($schemaService->normalize([]));
         }
 
-        return new JsonResponse($content->getPayload());
+        return new JsonResponse($schemaService->normalize($content->getPayload()));
     }
 
     #[Route('/api/admin/content', methods: ['PUT'])]
     public function updateContent(
         Request $request,
         EntityManagerInterface $em,
-        AdminTokenGuard $guard
+        AdminTokenGuard $guard,
+        ContentSchemaService $schemaService
     ): JsonResponse {
         $guard->assertAdmin($request);
 
@@ -38,8 +40,13 @@ final class ContentController
             throw new BadRequestHttpException('Invalid JSON payload');
         }
 
+        $errors = $schemaService->validate($payload);
+        if ($errors !== []) {
+            return new JsonResponse(['errors' => $errors], 422);
+        }
+
         $content = $this->getSingletonContent($em) ?? new Content();
-        $content->setPayload($payload);
+        $content->setPayload($schemaService->normalize($payload));
 
         $em->persist($content);
         $this->removeOlderContent($em, $content);

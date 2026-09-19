@@ -12,8 +12,26 @@ parameters:
     openai.summary_max_words: '%env(int:OPENAI_SUMMARY_MAX_WORDS)%'
     openai.bulletin_max_words: '%env(int:OPENAI_BULLETIN_MAX_WORDS)%'
     openai.bulletin_style: '%env(OPENAI_BULLETIN_STYLE)%'
+    deepseek.api_key: '%env(DEEPSEEK_API_KEY)%'
+    deepseek.model: '%env(DEEPSEEK_MODEL)%'
+    deepseek.quote_max_tokens: '%env(int:DEEPSEEK_QUOTE_MAX_TOKENS)%'
+    deepseek.quote_temperature: '%env(float:DEEPSEEK_QUOTE_TEMPERATURE)%'
+    deepseek.recommendation_timeout: '%env(int:DEEPSEEK_RECOMMENDATION_TIMEOUT)%'
     github.username: '%env(GITHUB_USERNAME)%'
     github.token: '%env(GITHUB_TOKEN)%'
+    # Wordmark and link at the top and bottom of every email the site sends.
+    brand.name: 'Facundo Varas'
+    brand.url: 'https://varascundo.com'
+    contact.recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
+    contact.sender_email: '%env(MAILER_FROM_EMAIL)%'
+    # Signs the confirmation sent to the visitor, like the quote one. Versioned
+    # on purpose: no new environment variable to declare before deploying.
+    contact.notification_signature: 'Facundo'
+    quote.notification_recipient_email: '%env(CONTACT_RECIPIENT_EMAIL)%'
+    quote.notification_sender_email: '%env(MAILER_FROM_EMAIL)%'
+    # Signs the acknowledgement sent to the prospect. Versioned on purpose: no
+    # new environment variable to declare on the server before deploying.
+    quote.notification_signature: 'Facundo'
 
 services:
     # default configuration for services in *this* file
@@ -48,9 +66,50 @@ services:
             $defaultMaxWords: '%openai.bulletin_max_words%'
             $style: '%openai.bulletin_style%'
 
+    App\Service\BrandedEmailRenderer:
+        arguments:
+            $brandName: '%brand.name%'
+            $brandUrl: '%brand.url%'
+
+    App\Service\ContactRequestNotificationService:
+        arguments:
+            $recipientEmail: '%contact.recipient_email%'
+            $senderEmail: '%contact.sender_email%'
+            $signatureName: '%contact.notification_signature%'
+
     App\Service\SkillsSnapshotService:
         arguments:
             $summaryMaxWords: '%openai.summary_max_words%'
+
+    App\Service\DeepSeekQuoteAnalysisService:
+        arguments:
+            $deepSeekApiKey: '%deepseek.api_key%'
+            $deepSeekModel: '%deepseek.model%'
+            $maxTokens: '%deepseek.quote_max_tokens%'
+            $temperature: '%deepseek.quote_temperature%'
+
+    App\Service\DeepSeekQuoteRecommendationService:
+        arguments:
+            $deepSeekApiKey: '%deepseek.api_key%'
+            $deepSeekModel: '%deepseek.model%'
+            $maxTokens: '%deepseek.quote_max_tokens%'
+            $temperature: '%deepseek.quote_temperature%'
+            $timeout: '%deepseek.recommendation_timeout%'
+
+    App\Controller\QuoteRecommendationController:
+        arguments:
+            $quoteRecommendationLimiter: '@limiter.quote_recommendation'
+
+    App\Service\QuoteEstimateNotificationService:
+        arguments:
+            $recipientEmail: '%quote.notification_recipient_email%'
+            $senderEmail: '%quote.notification_sender_email%'
+            $signatureName: '%quote.notification_signature%'
+
+    App\Controller\QuoteEstimateController:
+        arguments:
+            $quoteEstimatePublicLimiter: '@limiter.quote_estimate_public'
+            $quoteEstimatePreviewLimiter: '@limiter.quote_estimate_preview'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

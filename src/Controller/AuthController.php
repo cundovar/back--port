@@ -6,24 +6,22 @@ namespace App\Controller;
 
 use App\Entity\AdminUser;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
 final class AuthController
 {
-    private string $adminToken;
-
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly UserPasswordHasherInterface $hasher,
-        #[Autowire('%env(ADMIN_API_TOKEN)%')] string $adminToken,
+        private readonly Security $security,
     ) {
-        $this->adminToken = $adminToken;
     }
 
     #[Route('/api/admin/login', methods: ['POST'])]
@@ -37,41 +35,46 @@ final class AuthController
         $email = (string) ($payload['email'] ?? '');
         $password = (string) ($payload['password'] ?? '');
 
+        if (empty($email) || empty($password)) {
+            throw new BadRequestHttpException('Missing email or password');
+        }
+
         $user = $this->em->getRepository(AdminUser::class)->findOneBy(['email' => $email]);
         if (!$user || !$this->hasher->isPasswordValid($user, $password)) {
-            throw new UnauthorizedHttpException('Unauthorized');
+            throw new UnauthorizedHttpException('Unauthorized', 'Invalid credentials');
         }
+
+        $request->getSession()->start();
+        $request->getSession()->set('admin_user_id', $user->getId());
 
         $user->setLastLoginAt(new \DateTimeImmutable());
         $this->em->flush();
 
         return new JsonResponse([
-            'token' => $this->adminToken,
-            'expiresIn' => 86400,
-        ]);
+            'ok' => true,
+            'email' => $user->getEmail(),
+        ], 200);
     }
 
     #[Route('/api/admin/logout', methods: ['POST'])]
-    public function logout(): JsonResponse
+    public function logout(Request $request): JsonResponse
     {
+        $request->getSession()->invalidate();
         return new JsonResponse(['ok' => true]);
     }
 
     #[Route('/api/admin/me', methods: ['GET'])]
-    public function me(Request $request): JsonResponse
+    public function me(): JsonResponse
     {
-        $auth = $request->headers->get('Authorization', '');
-        $token = str_starts_with($auth, 'Bearer ') ? substr($auth, 7) : $auth;
-        if ($token !== $this->adminToken) {
-            throw new UnauthorizedHttpException('Unauthorized');
+        $user = $this->security->getUser();
+        if (!$user instanceof AdminUser) {
+            throw new AccessDeniedException('Not authenticated');
         }
 
-        $user = $this->em->getRepository(AdminUser::class)->findOneBy([]);
-
         return new JsonResponse([
-            'id' => $user?->getId() ?? 1,
-            'email' => $user?->getEmail() ?? 'admin',
-            'lastLoginAt' => (new \DateTimeImmutable())->format(DATE_ATOM),
+            'id' => $user->getId(),
+            'email' => $user->getEmail(),
+            'lastLoginAt' => $user->getLastLoginAt()?->format(DATE_ATOM),
         ]);
     }
 }
